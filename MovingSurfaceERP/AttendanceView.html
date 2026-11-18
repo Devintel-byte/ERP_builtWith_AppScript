@@ -1,0 +1,230 @@
+<main class="public-page">
+  <section class="attendance-panel">
+    <div class="brand-mark"><i data-lucide="scan-line"></i></div>
+    <p class="eyebrow">Moving Surface</p>
+    <h1>Attendance</h1>
+    <p class="intro">Verify your identity and location to record today’s attendance.</p>
+
+    <div id="modeBanner" class="mode-banner" aria-live="polite"></div>
+    <div class="form-grid">
+      <div class="field-span-2">
+        <label for="staffId">Staff member</label>
+        <select id="staffId" class="form-select form-select-lg" onchange="updateMode()" disabled>
+          <option>Loading staff...</option>
+        </select>
+      </div>
+      <div>
+        <label id="pinLabel" for="pin">PIN</label>
+        <div class="input-group input-group-lg">
+          <span class="input-group-text"><i data-lucide="key-round"></i></span>
+          <input id="pin" class="form-control" type="password" inputmode="numeric" autocomplete="current-password" maxlength="4" pattern="[0-9]{4}" placeholder="0000">
+        </div>
+      </div>
+      <div id="confirmBox" hidden>
+        <label for="confirmPin">Confirm PIN</label>
+        <div class="input-group input-group-lg">
+          <span class="input-group-text"><i data-lucide="shield-check"></i></span>
+          <input id="confirmPin" class="form-control" type="password" inputmode="numeric" autocomplete="new-password" maxlength="4" pattern="[0-9]{4}" placeholder="0000">
+        </div>
+      </div>
+    </div>
+
+    <div class="action-grid">
+      <button class="btn btn-success btn-lg" type="button" onclick="submitAttendance('Check In')"><i data-lucide="log-in"></i> Check in</button>
+      <button class="btn btn-outline-primary btn-lg" type="button" onclick="submitAttendance('Check Out')"><i data-lucide="log-out"></i> Check out</button>
+      <button class="btn btn-overtime btn-lg" type="button" onclick="submitAttendance('Check Out Overtime')"><i data-lucide="clock-3"></i> Check out overtime</button>
+    </div>
+    <div id="status" class="status-message" role="status" aria-live="polite" hidden></div>
+    <p id="overtimeNote" class="form-note"><i data-lucide="clock-3"></i> Loading overtime checkout time…</p>
+    <p class="form-note"><i data-lucide="map-pin"></i> Location access is required. PINs are exactly four digits, including leading zeroes.</p>
+    <p class="recovery-link"><a id="recoveryLink" href="#">Lost your device? Recover your account</a></p>
+    <nav class="attendance-portals" aria-label="Other application pages">
+      <span class="attendance-portals-label">Other pages</span>
+      <a id="staffPortalLink" href="#" hidden>Staff portal</a>
+      <a id="requisitionPortalLink" href="#" hidden>Requisitions</a>
+      <a id="adminPortalLink" href="#" hidden>Admin / ERP</a>
+    </nav>
+  </section>
+</main>
+<dialog id="attendanceResultDialog" class="confirm-dialog attendance-result-dialog" aria-labelledby="attendanceResultTitle" aria-describedby="attendanceResultMessage attendanceAdditionalMessage">
+  <div class="attendance-result-heading">
+    <span id="attendanceResultIcon" class="attendance-result-icon is-success" aria-hidden="true"></span>
+    <div>
+      <h2 id="attendanceResultTitle"></h2>
+      <p id="attendanceResultMessage"></p>
+    </div>
+  </div>
+  <div id="attendanceAdditionalReport" class="attendance-additional-report" hidden>
+    <span id="attendanceAdditionalIcon" class="attendance-additional-icon" aria-hidden="true"></span>
+    <p id="attendanceAdditionalMessage"></p>
+  </div>
+  <div class="attendance-result-actions">
+    <button id="closeAttendanceResult" class="btn btn-success" type="button">Close</button>
+  </div>
+</dialog>
+<script>
+let attendanceSubmitting = false, attendanceProcessToast = '';
+let attendanceResultReturnFocus = null;
+
+function showAttendanceResult(result,action) {
+  if (attendanceProcessToast) {
+    window.dismissAppToast(attendanceProcessToast);
+    attendanceProcessToast = '';
+  }
+  const dialog=document.getElementById('attendanceResultDialog');
+  const icon=document.getElementById('attendanceResultIcon');
+  const title=document.getElementById('attendanceResultTitle');
+  const resultMessage=document.getElementById('attendanceResultMessage');
+  const additionalReport=document.getElementById('attendanceAdditionalReport');
+  const additionalIcon=document.getElementById('attendanceAdditionalIcon');
+  const additionalMessage=document.getElementById('attendanceAdditionalMessage');
+  const closeButton=document.getElementById('closeAttendanceResult');
+  const actionLabel=action==='Check In'?'Check-in':action==='Check Out Overtime'?'Overtime checkout':'Checkout';
+  const isSuccess=Boolean(result&&result.success),hasWarning=Boolean(result&&result.alert);
+  const details=result&&result.attendanceResult;
+  icon.className='attendance-result-icon '+(isSuccess?'is-success':'is-error');
+  icon.innerHTML='<i data-lucide="'+(isSuccess?'circle-check':'circle-alert')+'"></i>';
+  title.textContent=isSuccess?actionLabel+' recorded':actionLabel+' not recorded';
+  resultMessage.textContent=String(details&&details.primaryMessage||result&&result.message||'No additional details were provided.');
+  const extraText=String(details&&details.additionalMessage||'');
+  additionalReport.hidden=!isSuccess||!extraText;
+  additionalIcon.className='attendance-additional-icon '+(hasWarning?'is-warning':'is-info');
+  additionalIcon.innerHTML='<i data-lucide="'+(hasWarning?'triangle-alert':'circle-info')+'"></i>';
+  additionalMessage.textContent=extraText;
+  closeButton.className='btn '+(isSuccess?'btn-success':'btn-outline-secondary');
+  attendanceResultReturnFocus=document.activeElement;
+  if(!dialog.open)dialog.showModal();
+  // Refresh the whole dialog: the additional-report icon is a second element
+  // and was being left unrendered when only the heading icon was refreshed.
+  if(window.refreshIcons)window.refreshIcons(dialog);
+  closeButton.focus();
+}
+
+document.getElementById('closeAttendanceResult').addEventListener('click',function() {
+  document.getElementById('attendanceResultDialog').close();
+});
+document.getElementById('attendanceResultDialog').addEventListener('close',function() {
+  if(attendanceResultReturnFocus&&typeof attendanceResultReturnFocus.focus==='function')attendanceResultReturnFocus.focus();
+  attendanceResultReturnFocus=null;
+});
+
+function showStatus(message, kind, processTitle) {
+  if (attendanceProcessToast) {
+    window.dismissAppToast(attendanceProcessToast);
+    attendanceProcessToast = '';
+  }
+  if (kind === 'wait') {
+    attendanceProcessToast = window.showAppToast(message,'loading',processTitle || 'Attendance',{persistent:true});
+    return;
+  }
+  const type = kind === 'bad' ? 'error' : kind === 'warn' ? 'warning' : 'success';
+  window.showAppToast(message,type,kind === 'bad' ? 'Needs attention' : kind === 'warn' ? 'Attendance notice' : 'Attendance recorded');
+}
+
+function tokenKey(staffId) { return 'MS_ATT_DEVICE_TOKEN_' + staffId; }
+
+function digitsOnly(input) {
+  input.value = input.value.replace(/\D/g, '').slice(0, 4);
+}
+
+function loadStaff() {
+  const loadingToast = window.showAppToast('Loading staff options…','loading','Attendance',{persistent:true});
+  google.script.run.withSuccessHandler(function(staff) {
+    window.dismissAppToast(loadingToast);
+    const select = document.getElementById('staffId');
+    select.innerHTML = '';
+    if (staff.length) {
+      staff.forEach(function(person) {
+        const option = document.createElement('option');
+        option.value = person.id;
+        option.textContent = person.name + ' - ' + person.id;
+        option.dataset.pinset = person.pinSet ? 'YES' : 'NO';
+        option.dataset.deviceset = person.deviceSet ? 'YES' : 'NO';
+        select.appendChild(option);
+      });
+    } else {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'No active staff found';
+      select.appendChild(option);
+    }
+
+    select.disabled = !staff.length;
+    updateMode();
+    refreshIcons();
+  }).withFailureHandler(function(error) {
+    window.dismissAppToast(loadingToast);
+    const select = document.getElementById('staffId');
+    select.innerHTML = '<option value="">Staff list unavailable</option>';
+    select.disabled = true;
+    showStatus('Unable to load staff: ' + (error.message || error), 'bad');
+  }).getPublicStaffOptions();
+}
+
+function updateMode() {
+  const select = document.getElementById('staffId');
+  const option = select.options[select.selectedIndex];
+  const pinSet = option && option.dataset.pinset === 'YES';
+  const deviceSet = option && option.dataset.deviceset === 'YES';
+  document.getElementById('confirmBox').hidden = pinSet;
+  document.getElementById('pinLabel').textContent = pinSet ? 'Four-digit PIN' : 'Create a four-digit PIN';
+  document.getElementById('modeBanner').textContent = pinSet ? 'Ready for daily attendance.' : (deviceSet ? 'PIN reset mode: use your registered device.' : 'First visit: create your PIN and register this device.');
+}
+
+function submitAttendance(action) {
+  if (attendanceSubmitting) return;
+  const processTitle = action === 'Check In' ? 'Checking in' :
+    action === 'Check Out Overtime' ? 'Checking out overtime' : 'Checking out';
+  const staffId = document.getElementById('staffId').value;
+  const pin = document.getElementById('pin').value;
+  const confirmPin = document.getElementById('confirmPin').value;
+  const option = document.getElementById('staffId').options[document.getElementById('staffId').selectedIndex];
+  const pinSet = option && option.dataset.pinset === 'YES';
+  if (!staffId) return showStatus('Select an active staff member.', 'bad');
+  if (!/^\d{4}$/.test(pin)) return showStatus('Enter a four-digit PIN.', 'bad');
+  if (!pinSet && pin !== confirmPin) return showStatus('PIN and confirmation do not match.', 'bad');
+  if (!navigator.geolocation) return showStatus('GPS is not supported on this device.', 'bad');
+  attendanceSubmitting = true;
+  showStatus('Requesting location for '+action.toLowerCase()+'…', 'wait', processTitle);
+  navigator.geolocation.getCurrentPosition(function(position) {
+    showStatus('Recording '+action.toLowerCase()+'…', 'wait', processTitle);
+    const payload = {staffId: staffId, pin: pin, confirmPin: confirmPin, action: action, deviceToken: localStorage.getItem(tokenKey(staffId)) || '', latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy, userAgent: navigator.userAgent};
+    google.script.run.withSuccessHandler(function(result) {
+      attendanceSubmitting = false;
+      if (result&&result.success&&result.deviceToken) localStorage.setItem(tokenKey(staffId), result.deviceToken);
+      showAttendanceResult(result||{success:false,message:'The attendance service returned no result. Try again or contact Admin.'},action);
+    }).withFailureHandler(function(error) {
+      attendanceSubmitting = false;
+      showAttendanceResult({success:false,message:'Attendance could not be submitted. '+(error.message || error)},action);
+    }).recordAttendance(payload);
+  }, function() {
+    attendanceSubmitting = false;
+    showAttendanceResult({success:false,message:'Location access was denied or unavailable. Check browser permissions and try again.'},action);
+  }, {enableHighAccuracy: true, timeout: 10000, maximumAge: 10000});
+}
+
+['pin', 'confirmPin'].forEach(function(id) { document.getElementById(id).addEventListener('input', function() { digitsOnly(this); }); });
+loadStaff();
+google.script.run.withSuccessHandler(function(url) {
+  if (url) document.getElementById('recoveryLink').href = url;
+}).withFailureHandler(function(error) {
+  showStatus('Account recovery link could not be loaded. Contact Admin if you have lost your device.','bad');
+}).getStaffRecoveryUrl();
+google.script.run.withSuccessHandler(function(links) {
+  const linkIds = {'Staff portal':'staffPortalLink','Requisitions':'requisitionPortalLink','Admin / ERP':'adminPortalLink'};
+  (links || []).forEach(function(link) {
+    const element = document.getElementById(linkIds[link.label]);
+    if (!element || !link.url) return;
+    element.href = link.url;
+    element.hidden = false;
+  });
+}).withFailureHandler(function(error) {
+  showStatus('Other portal links could not be loaded. Refresh the page or contact Admin.','bad');
+}).getPublicPortalLinks();
+google.script.run.withSuccessHandler(function(settings) {
+  document.getElementById('overtimeNote').textContent = 'Overtime checkout opens at '+settings.overtimeStart+'. Earlier departures should use Check out.';
+}).withFailureHandler(function(error) {
+  document.getElementById('overtimeNote').textContent = 'Overtime checkout time is unavailable. Refresh the page or contact Admin.';
+  showStatus('Unable to load overtime settings. Refresh the page or contact Admin.','bad');
+}).getPublicAttendanceSettings();
+</script>

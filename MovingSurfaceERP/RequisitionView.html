@@ -1,0 +1,54 @@
+<main class="public-page requisition-page">
+  <section class="requisition-panel">
+    <div class="section-heading"><div><p class="eyebrow">Procurement</p><h1>Item requisition</h1><p class="intro">Create a clear request for approval and accounts processing.</p></div><div class="brand-mark"><i data-lucide="clipboard-list"></i></div></div>
+    <div class="form-grid">
+      <div><label for="staffId">Staff member</label><select id="staffId" class="form-select" disabled><option>Loading staff...</option></select></div>
+      <div><label for="pin">Four-digit PIN</label><div class="input-group"><span class="input-group-text"><i data-lucide="key-round"></i></span><input id="pin" class="form-control" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="0000"></div></div>
+      <div><label for="project">Project or event</label><input id="project" class="form-control" placeholder="NOG 2026, Office, NASRDA"></div>
+      <div><label for="priority">Priority</label><select id="priority" class="form-select"><option value="" disabled selected>Select a priority…</option><option>Normal</option><option>Urgent</option><option>Low</option></select></div>
+      <div><label for="neededBefore">Needed before</label><input id="neededBefore" class="form-control" type="date"></div>
+      <div><label for="attachment">Attachment link</label><input id="attachment" class="form-control" type="url" placeholder="Quotation or Drive link"></div>
+      <div class="field-span-2"><label for="purpose">Purpose and justification</label><textarea id="purpose" class="form-control" rows="3" placeholder="Explain why these items are needed"></textarea></div>
+    </div>
+    <div class="items-heading"><div><p class="eyebrow">Request lines</p><h2>Items</h2></div><button type="button" class="btn btn-outline-secondary" onclick="addItem()"><i data-lucide="plus"></i> Add item</button></div>
+    <div id="items" class="items-list"></div>
+    <div class="submit-bar"><p id="totalText">Estimated total: N0</p><button class="btn btn-primary btn-lg" type="button" onclick="submitReq()"><i data-lucide="send"></i> Submit requisition</button></div>
+    <div id="status" class="status-message" hidden></div>
+    <p class="recovery-link"><a id="recoveryLink" href="#">Lost your device? Recover your account</a></p>
+  </section>
+</main>
+<script>
+let itemCounter = 0, requisitionSubmitting = false;
+let requisitionProcessToast = '';
+function money(value) { return 'N' + Number(value || 0).toLocaleString('en-NG'); }
+function show(message, kind) { if(requisitionProcessToast){window.dismissAppToast(requisitionProcessToast);requisitionProcessToast='';}if(kind==='wait'){requisitionProcessToast=window.showAppToast(message,'loading','Requisition',{persistent:true});return;}window.showAppToast(message,kind==='bad'?'error':kind==='warn'?'warning':'success',kind==='bad'?'Action failed':kind==='warn'?'Needs attention':'Request update'); }
+// Categories come from the server so a requisition line lands in a category the
+// project cost report understands. Until they arrive, the list stays minimal
+// rather than offering labels the server would discard.
+let requisitionCategories = ['Miscellaneous'];
+function requisitionCategoryOptions() {
+  return '<option value="" disabled selected>Select a category\u2026</option>' +
+    requisitionCategories.map(function(c){ return '<option>' + c.replace(/[&<>"']/g, function(ch){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch]; }) + '</option>'; }).join('');
+}
+function loadRequisitionReferenceData() {
+  google.script.run.withSuccessHandler(function(data) {
+    if (!data || !data.costCategories || !data.costCategories.length) return;
+    requisitionCategories = data.costCategories;
+    // Repopulate any rows already on screen, keeping what the user picked.
+    document.querySelectorAll('select.category').forEach(function(select) {
+      const chosen = select.value;
+      select.innerHTML = requisitionCategoryOptions();
+      if (chosen) select.value = chosen;
+    });
+  }).withFailureHandler(function() {}).getRequisitionReferenceData();
+}
+function loadStaff() { const loadingToast=window.showAppToast('Loading staff options…','loading','Requisition',{persistent:true});google.script.run.withSuccessHandler(function(staff) { window.dismissAppToast(loadingToast);const select = document.getElementById('staffId'); select.innerHTML = ''; staff.forEach(function(person) { const option = document.createElement('option'); option.value = person.id; option.textContent = person.name + ' - ' + person.id; select.appendChild(option); }); if (!staff.length) { const option = document.createElement('option'); option.value = ''; option.textContent = 'No active staff found'; select.appendChild(option); } select.disabled = !staff.length; }).withFailureHandler(function(error) { window.dismissAppToast(loadingToast);const select=document.getElementById('staffId');select.innerHTML='<option value="">Staff list unavailable</option>';select.disabled=true;show('Unable to load staff: ' + (error.message || error), 'bad'); }).getPublicStaffOptions(); }
+function addItem() { itemCounter++; const item = document.createElement('article'); item.className = 'requisition-item'; item.id = 'item_' + itemCounter; item.innerHTML = '<div class="item-grid"><div><label>Item name</label><input class="form-control itemName" placeholder="HDMI cable"></div><div><label>Quantity</label><input class="form-control qty" type="number" min="1" step="1" placeholder="1"></div><div><label>Unit cost</label><input class="form-control unitCost" type="number" min="0" placeholder="0"></div><div><label>Category</label><select class="form-select category">' + requisitionCategoryOptions() + '</select></div><div class="item-remove"><button type="button" class="icon-button danger" title="Remove item"><i data-lucide="trash-2"></i></button></div></div><div><label>Vendor or supplier</label><input class="form-control vendor" placeholder="Supplier name or link"></div>'; item.querySelector('.icon-button').addEventListener('click', function() { item.remove(); calcTotal(); }); item.querySelectorAll('input, select').forEach(function(input) { input.addEventListener('input', calcTotal); }); document.getElementById('items').appendChild(item); calcTotal(); refreshIcons(); }
+function collectItems() { return Array.from(document.querySelectorAll('.requisition-item')).map(function(item) { const qty = Number(item.querySelector('.qty').value || 0); const unitCost = Number(item.querySelector('.unitCost').value || 0); return {itemName:item.querySelector('.itemName').value.trim(), qty:qty, unitCost:unitCost, total:qty * unitCost, category:item.querySelector('.category').value, vendor:item.querySelector('.vendor').value.trim()}; }).filter(function(item) { return item.itemName; }); }
+function calcTotal() { const total = collectItems().reduce(function(sum, item) { return sum + item.total; }, 0); document.getElementById('totalText').textContent = 'Estimated total: ' + money(total); }
+function submitReq() { if(requisitionSubmitting)return;const staffId=document.getElementById('staffId').value; const pin = document.getElementById('pin').value; const items = collectItems(); if (!staffId || !/^\d{4}$/.test(pin)) return show('Select staff and enter a four-digit PIN.', 'bad'); if (!items.length) return show('Add at least one item.', 'bad'); const payload = {staffId:staffId, pin:pin, deviceToken:localStorage.getItem('MS_ATT_DEVICE_TOKEN_'+staffId)||'', project:document.getElementById('project').value, priority:document.getElementById('priority').value, neededBefore:document.getElementById('neededBefore').value, attachment:document.getElementById('attachment').value, purpose:document.getElementById('purpose').value, items:items}; requisitionSubmitting=true;show('Submitting requisition…', 'wait'); google.script.run.withSuccessHandler(function(result) { requisitionSubmitting=false;show(result.message, result.success ? 'ok' : 'bad'); if (result.success) { document.getElementById('items').innerHTML = ''; document.getElementById('purpose').value = ''; addItem(); } }).withFailureHandler(function(error) { requisitionSubmitting=false;show('Requisition could not be submitted: ' + (error.message || error), 'bad'); }).submitItemRequisition(payload); }
+document.getElementById('pin').addEventListener('input', function() { this.value = this.value.replace(/\D/g, '').slice(0, 4); });
+google.script.run.withSuccessHandler(function(url){if(url)document.getElementById('recoveryLink').href=url;}).getStaffRecoveryUrl();
+loadRequisitionReferenceData();
+loadStaff(); addItem();
+</script>

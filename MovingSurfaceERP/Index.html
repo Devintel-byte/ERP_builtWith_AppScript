@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <?!= include_('Styles'); ?>
+    <script>
+      (function() {
+        const paths = {
+          'scan-line':'<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
+          'key-round':'<circle cx="8" cy="15" r="5"/><path d="m21 2-2 2m-7.6 7.6L21 2l-2 5 3 3-5 2-2.4-2.4"/>',
+          'shield-check':'<path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11"/><path d="m9 12 2 2 4-4"/>',
+          'log-in':'<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/>',
+          'log-out':'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+          'clock-3':'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+          'map-pin':'<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
+          'clipboard-list':'<rect x="5" y="4" width="14" height="18" rx="2"/><path d="M9 4.5V3h6v1.5M9 10h6M9 14h6M9 18h3"/>',
+          'plus':'<path d="M12 5v14M5 12h14"/>',
+          'send':'<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+          'trash-2':'<path d="M3 6h18M8 6V4h8v2m3 0-1 15H6L5 6m4 4v7m6-7v7"/>',
+          'layout-dashboard':'<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/><rect x="13" y="10" width="8" height="11" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/>',
+          'calendar-check':'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18m-13 5 2 2 4-4"/>',
+          'users-round':'<path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
+          'shopping-cart':'<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2 3h2l2.7 12.4A2 2 0 0 0 8.7 17H19a2 2 0 0 0 2-1.6L22 8H5"/>',
+          'boxes':'<path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="M3 8v9l9 5 9-5V8M12 13v9"/>',
+          'laptop':'<rect x="4" y="4" width="16" height="12" rx="2"/><path d="M2 20h20l-2-4H4l-2 4Z"/>',
+          'receipt':'<path d="M4 2v20l4-2 4 2 4-2 4 2V2l-4 2-4-2-4 2-4-2Z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+          'tree-deciduous':'<path d="M12 22v-7m0-4v4"/><path d="M12 11a5 5 0 1 0-5 4h10a5 5 0 1 0-5-4Z"/><path d="M12 4a3 3 0 1 0-3 3h6a3 3 0 1 0-3-3Z"/>',
+          'folder-kanban':'<path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M8 10v7m4-7v4m4-4v6"/>',
+          'handshake':'<path d="m11 17 2 2a2 2 0 0 0 3-3l-4-4"/><path d="m5 12 2-2 4 1 2-2 5 1 3 3-5 5-3-3"/><path d="m2 11 4-4 4 1m-8 3v7h3m17-7v7h-3"/>',
+          'chart-no-axes-column':'<path d="M3 3v18h18"/><path d="M18 17V9m-5 8V5M8 17v-3"/>',
+          'circle-check':'<circle cx="12" cy="12" r="10"/><path d="m8 12 2.5 2.5L16 9"/>',
+          'circle-info':'<circle cx="12" cy="12" r="10"/><path d="M12 11v5m0-8h.01"/>',
+          'circle-alert':'<circle cx="12" cy="12" r="10"/><path d="M12 8v5m0 3h.01"/>',
+          'triangle-alert':'<path d="m10.3 3.9-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3.1l-8-14a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4m0 4h.01"/>',
+          'chevron-left':'<path d="m15 18-6-6 6-6"/>',
+          'chevron-right':'<path d="m9 18 6-6-6-6"/>',
+          'pencil':'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+          'upload':'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 9 5-5 5 5"/><path d="M12 4v12"/>',
+          'download':'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 11 5 5 5-5"/><path d="M12 16V4"/>',
+          'x':'<path d="M18 6 6 18M6 6l12 12"/>',
+          'search':'<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+          'save':'<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8M7 3v5h8"/>',
+          'file-spreadsheet':'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/><path d="M8 13h8M8 17h8M12 13v4"/>',
+          'package':'<path d="m12 2 9 5v10l-9 5-9-5V7Z"/><path d="M3 7l9 5 9-5M12 12v10"/>',
+          'rotate-cw':'<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/>',
+          'circle-help':'<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+          'arrow-down-up':'<path d="m3 16 4 4 4-4M7 20V4"/><path d="m21 8-4-4-4 4M17 4v16"/>'
+        };
+        const MISSING_ICON = '<circle cx="12" cy="12" r="9"/><path d="M12 8v4m0 4h.01"/>';
+        function renderIcon(icon) {
+          const name = icon.getAttribute('data-lucide');
+          const iconPaths = paths[name];
+          if (!iconPaths && window.console && console.warn) {
+            console.warn('Icon "' + name + '" is not in the registry; showing a placeholder instead.');
+          }
+          icon.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (iconPaths || MISSING_ICON) + '</svg>';
+          icon.setAttribute('aria-hidden', 'true');
+          icon.setAttribute('data-icon-ready', '1');
+        }
+        window.refreshIcons = function(root) {
+          const scope = root || document;
+          if (scope.nodeType === 1 && scope.matches && scope.matches('i[data-lucide]')) renderIcon(scope);
+          if (!scope.querySelectorAll) return;
+          scope.querySelectorAll('i[data-lucide]').forEach(renderIcon);
+        };
+        // Every screen in this app rebuilds its markup with innerHTML, and a
+        // caller that forgot to call refreshIcons used to leave a blank gap
+        // where an icon should be. Watching the document upgrades icons however
+        // they arrive, so no caller has to remember.
+        function upgradePending(root) {
+          if (!root || root.nodeType !== 1) return;
+          if (root.matches && root.matches('i[data-lucide]:not([data-icon-ready])')) renderIcon(root);
+          if (!root.querySelectorAll) return;
+          root.querySelectorAll('i[data-lucide]:not([data-icon-ready])').forEach(renderIcon);
+        }
+        function startIconObserver() {
+          upgradePending(document.body);
+          if (!window.MutationObserver || !document.body) return;
+          new MutationObserver(function(records) {
+            records.forEach(function(record) {
+              if (record.type === 'attributes') {
+                if (record.target.getAttribute('data-lucide')) {
+                  record.target.removeAttribute('data-icon-ready');
+                  renderIcon(record.target);
+                }
+                return;
+              }
+              record.addedNodes.forEach(upgradePending);
+            });
+          }).observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['data-lucide']});
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', startIconObserver);
+        } else {
+          startIconObserver();
+        }
+      })();
+    </script>
+  </head>
+  <body data-canonical-url="<?= canonicalUrl ?>">
+    <div id="appToasts" class="toast-stack" aria-live="polite" aria-atomic="false"></div>
+    <script>
+      let appToastSequence = 0;
+      window.showAppToast = function(message, type, title, options) {
+        const stack = document.getElementById('appToasts');
+        if (!stack || !message) return '';
+        options = options || {};
+        const toastId = 'app-toast-' + (++appToastSequence);
+        const toast = document.createElement('div');
+        const icon = type === 'loading' ? '' : type === 'error' ? 'circle-alert' : type === 'warning' ? 'triangle-alert' : type === 'success' ? 'circle-check' : 'circle-info';
+        toast.id = toastId;
+        toast.className = 'app-toast toast-' + (type || 'info');
+        toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+        const mark = document.createElement('i');
+        mark.setAttribute('aria-hidden', 'true');
+        if (type === 'loading') {
+          const spinner = document.createElement('span');
+          spinner.className = 'toast-spinner';
+          spinner.setAttribute('aria-hidden', 'true');
+          mark.appendChild(spinner);
+        } else {
+          mark.setAttribute('data-lucide', icon);
+        }
+        const content = document.createElement('div');
+        const heading = document.createElement('strong');
+        heading.textContent = title || (type === 'error' ? 'Action failed' : type === 'warning' ? 'Needs attention' : type === 'success' ? 'Done' : 'Update');
+        const detail = document.createElement('span');
+        detail.textContent = String(message);
+        content.append(heading, detail);
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'toast-close';
+        close.setAttribute('aria-label', 'Dismiss notification');
+        close.textContent = '×';
+        close.hidden = options.persistent === true;
+        close.addEventListener('click', function() { toast.remove(); });
+        toast.append(mark, content, close);
+        stack.appendChild(toast);
+        if (icon && window.refreshIcons) window.refreshIcons(toast);
+        if (options.persistent !== true) {
+          let timer = window.setTimeout(function() { toast.remove(); }, 6500);
+          toast.addEventListener('mouseenter', function() { window.clearTimeout(timer); });
+          toast.addEventListener('mouseleave', function() { timer = window.setTimeout(function() { toast.remove(); }, 2500); });
+        }
+        return toastId;
+      };
+      window.dismissAppToast = function(toastId) {
+        const toast = toastId && document.getElementById(toastId);
+        if (toast) toast.remove();
+      };
+    </script>
+    <script>window.MS_RECOVERY_TOKEN = '<?= recoveryToken ?>';</script>
+    <?!= include_(viewName); ?>
+    <dialog id="appConfirmDialog" class="confirm-dialog" aria-labelledby="appConfirmTitle" aria-describedby="appConfirmMessage">
+      <form method="dialog">
+        <h2 id="appConfirmTitle">Confirm action</h2>
+        <p id="appConfirmMessage"></p>
+        <div class="button-row">
+          <button class="btn btn-outline-secondary" value="cancel">Cancel</button>
+          <button id="appConfirmSubmit" class="btn btn-primary" value="confirm">Confirm</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="appFormDialog" class="form-dialog" aria-labelledby="appFormTitle">
+      <form method="dialog">
+        <div class="form-dialog-head">
+          <div>
+            <h2 id="appFormTitle">Edit</h2>
+            <p id="appFormDescription" class="muted"></p>
+          </div>
+          <button type="submit" class="form-dialog-close" value="cancel" aria-label="Close without saving">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <div id="appFormBody" class="form-dialog-body"></div>
+        <div id="appFormError" class="form-dialog-error" hidden role="alert"></div>
+        <div class="button-row">
+          <button type="submit" class="btn btn-outline-secondary" value="cancel">Cancel</button>
+          <button type="submit" id="appFormSubmit" class="btn btn-primary" value="confirm">Save changes</button>
+        </div>
+      </form>
+    </dialog>
+    <script>
+      /**
+       * Opens a modal containing caller-supplied form markup and resolves to the
+       * values the caller asks for. `fields` maps a result key to the element id
+       * inside the modal, so the caller never has to reach into the dialog.
+       */
+      window.openFormModal = function(options) {
+        options = options || {};
+        const dialog = document.getElementById('appFormDialog');
+        const body = document.getElementById('appFormBody');
+        const errorBox = document.getElementById('appFormError');
+        const submit = document.getElementById('appFormSubmit');
+        document.getElementById('appFormTitle').textContent = options.title || 'Edit';
+        const description = document.getElementById('appFormDescription');
+        description.textContent = options.description || '';
+        description.hidden = !options.description;
+        submit.textContent = options.confirmText || 'Save changes';
+        submit.classList.toggle('danger', options.danger === true);
+        submit.classList.toggle('btn-primary', options.danger !== true);
+        body.innerHTML = options.bodyHtml || '';
+        errorBox.hidden = true;
+        errorBox.textContent = '';
+
+        function readValues() {
+          const values = {};
+          Object.keys(options.fields || {}).forEach(function(key) {
+            const field = document.getElementById(options.fields[key]);
+            values[key] = field ? field.value : '';
+          });
+          return values;
+        }
+
+        return new Promise(function(resolve) {
+          function onClose() {
+            if (dialog.returnValue !== 'confirm') { cleanup(); resolve(null); return; }
+            const values = readValues();
+            // A validator can refuse the save and reopen with the message shown.
+            const problem = options.validate ? options.validate(values) : '';
+            if (problem) {
+              errorBox.textContent = problem;
+              errorBox.hidden = false;
+              dialog.addEventListener('close', onClose, {once: true});
+              dialog.showModal();
+              return;
+            }
+            cleanup();
+            resolve(values);
+          }
+          function cleanup() { dialog.removeEventListener('close', onClose); }
+          dialog.addEventListener('close', onClose, {once: true});
+          dialog.showModal();
+          if (typeof options.onOpen === 'function') options.onOpen();
+          const first = body.querySelector('input, select, textarea');
+          if (first) first.focus();
+        });
+      };
+
+      window.confirmAppAction = function(options) {
+        const dialog = document.getElementById('appConfirmDialog');
+        const submit = document.getElementById('appConfirmSubmit');
+        document.getElementById('appConfirmTitle').textContent = options.title || 'Confirm action';
+        document.getElementById('appConfirmMessage').textContent = options.message || 'Continue with this action?';
+        submit.textContent = options.confirmText || 'Confirm';
+        submit.classList.toggle('danger', options.danger === true);
+        submit.classList.toggle('btn-primary', options.danger !== true);
+        return new Promise(function(resolve) {
+          dialog.addEventListener('close', function() {
+            resolve(dialog.returnValue === 'confirm');
+          }, {once:true});
+          dialog.showModal();
+        });
+      };
+      (function() {
+        const canonicalUrl = document.body.getAttribute('data-canonical-url');
+        if (!canonicalUrl) return;
+        try {
+          const target = new URL(canonicalUrl);
+          const current = new URL(window.location.href);
+          if (target.origin !== current.origin || target.pathname !== current.pathname) return;
+          target.hash = current.hash;
+          if (target.href !== current.href) window.location.replace(target.href);
+        } catch (error) {
+          console.error('Unable to normalize this application URL.', error);
+        }
+      })();
+    </script>
+  </body>
+</html>

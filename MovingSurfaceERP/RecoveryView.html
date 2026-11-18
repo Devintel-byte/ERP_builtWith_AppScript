@@ -1,0 +1,85 @@
+<main class="public-page">
+  <section class="recovery-panel">
+    <div class="brand-mark"><i data-lucide="shield-check"></i></div>
+    <p class="eyebrow">Moving Surface account access</p>
+    <h1 id="pageTitle">Recover your account</h1>
+    <p id="pageIntro" class="intro">Enter the company email recorded for this Staff ID. Recovery links are sent only to that registered address.</p>
+
+    <form id="requestForm" onsubmit="requestRecovery(event)">
+      <label for="staffId">Staff ID</label>
+      <input id="staffId" autocomplete="username" required maxlength="40" placeholder="e.g. MS-001">
+      <label for="email">Company email</label>
+      <input id="email" type="email" autocomplete="email" required maxlength="254" placeholder="Registered company email">
+      <button class="btn btn-primary btn-lg" type="submit">Email me a recovery link</button>
+    </form>
+
+    <form id="resetForm" onsubmit="completeRecovery(event)" hidden>
+      <label for="pin">New four-digit PIN</label>
+      <input id="pin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="4" pattern="[0-9]{4}" required placeholder="0000">
+      <label for="confirmPin">Confirm new PIN</label>
+      <input id="confirmPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="4" pattern="[0-9]{4}" required placeholder="0000">
+      <button class="btn btn-primary btn-lg" type="submit">Reset PIN and register this device</button>
+    </form>
+
+    <div id="status" class="status-message" role="status" aria-live="polite" hidden></div>
+    <p class="recovery-note">Only use a link you requested. Links expire after 30 minutes and work once. If you no longer have access to your company email, contact Admin.</p>
+    <p class="recovery-link"><a id="attendanceLink" href="#">Return to Attendance</a></p>
+  </section>
+</main>
+<script>
+const recoveryToken = window.MS_RECOVERY_TOKEN || '';
+let recoveryProcessToast = '';
+function setStatus(message,kind) {
+  if(recoveryProcessToast){window.dismissAppToast(recoveryProcessToast);recoveryProcessToast='';}
+  if(kind==='wait'){recoveryProcessToast=window.showAppToast(message,'loading','Account recovery',{persistent:true});return;}
+  window.showAppToast(message,kind==='bad'?'error':'success',kind==='bad'?'Recovery failed':'Account recovery');
+}
+function requestRecovery(event) {
+  event.preventDefault();
+  const button=document.querySelector('#requestForm button');
+  button.disabled=true;
+  setStatus('Checking your details…','wait');
+  google.script.run.withSuccessHandler(function(result) {
+    button.disabled=false;
+    setStatus(result.message,result.success?'ok':'bad');
+  }).withFailureHandler(function(error) {
+    button.disabled=false;
+    setStatus('Recovery could not be completed. Try again later or contact Admin.','bad');
+  }).requestStaffAccountRecovery({staffId:document.getElementById('staffId').value,email:document.getElementById('email').value});
+}
+function completeRecovery(event) {
+  event.preventDefault();
+  const button=document.querySelector('#resetForm button');
+  button.disabled=true;
+  setStatus('Resetting your PIN and registered device…','wait');
+  google.script.run.withSuccessHandler(function(result) {
+    button.disabled=false;
+    if (!result.success) return setStatus(result.message,'bad');
+    localStorage.setItem('MS_ATT_DEVICE_TOKEN_'+result.staffId, result.deviceToken);
+    setStatus(result.message+' You can now use this device for attendance and the staff portal.','ok');
+    document.getElementById('resetForm').hidden=true;
+    document.getElementById('pageTitle').textContent='Account recovered';
+    document.getElementById('pageIntro').textContent='Your new PIN and device are ready to use.';
+    history.replaceState(null,'',location.pathname+'?recover=1');
+  }).withFailureHandler(function(error) {
+    button.disabled=false;
+    setStatus('Recovery could not be completed. Request a new link or contact Admin.','bad');
+  }).completeStaffAccountRecovery({token:recoveryToken,pin:document.getElementById('pin').value,confirmPin:document.getElementById('confirmPin').value});
+}
+['pin','confirmPin'].forEach(function(id) {
+  document.getElementById(id).addEventListener('input',function(){this.value=this.value.replace(/\D/g,'').slice(0,4);});
+});
+if (recoveryToken) {
+  document.getElementById('requestForm').hidden=true;
+  document.getElementById('resetForm').hidden=false;
+  document.getElementById('pageTitle').textContent='Set a new PIN';
+  document.getElementById('pageIntro').textContent='This one-time link will reset your PIN and register this browser as your new device.';
+}
+google.script.run.withSuccessHandler(function(url){
+  if(url)document.getElementById('attendanceLink').href=url;
+}).withFailureHandler(function(error){
+  window.showAppToast('The attendance link is unavailable. Reopen this page from your attendance URL.','error','Link unavailable');
+  document.getElementById('attendanceLink').removeAttribute('href');
+  document.getElementById('attendanceLink').textContent='Attendance link unavailable; reopen this page from your normal attendance URL.';
+}).getAttendanceUrl();
+</script>
