@@ -36,16 +36,16 @@ Keep sheet reads and business rules in server-side files. UI files should call s
 
 1. Create or open the bound Apps Script project for the workbook and add the modular files.
 2. Run `setupMovingSurfaceERPUpgrade` once and approve the requested Google permissions. It creates/repairs core and ERP sheets (including the Activity Log), runs the Projects / Leads schema migration, normalizes existing PIN cells to text, syncs the accountant view, and installs the one-minute email queue trigger plus the daily lead-reminder and project-reconcile triggers.
-3. Replace sample administrator credentials and map each enabled admin account to a Staff ID in `Admin Users`; review the role, page permissions, and notification email columns below.
+3. Map each enabled admin account to a Staff ID in `Admin Users` (sample accounts are pre-linked) and review the role, page permissions, and notification email columns below. Admin Users holds no PIN: each person creates their own on the attendance page. See *One PIN for every page*.
 4. Review recipient addresses in `Requisition Settings`.
-5. Run `testRoutingAndPinRules`, `testAdminLogin`, `testERPPortalData`, `testRecoveryEmailMatchRules`, `testAttendanceTransitionRules`, `testRequisitionClientDto`, `testAdminAccessRules`, `testAdminCredentialResolution`, `testUserPermissionMatrixValidation`, `testRequisitionNotificationClassification`, `testProjectsAndLeadsPipeline`, `testInventoryModule`, and `testClientDetailCapture`.
+5. Run `testRoutingAndPinRules`, `testAdminLogin`, `testERPPortalData`, `testRecoveryEmailMatchRules`, `testAttendanceTransitionRules`, `testRequisitionClientDto`, `testAdminAccessRules`, `testAdminCredentialResolution`, `testUserPermissionMatrixValidation`, `testRequisitionNotificationClassification`, `testProjectsAndLeadsPipeline`, `testInventoryModule`, `testClientDetailCapture`, `testDeviceMismatchPolicy`, `testUserAgentClassification`, `testSinglePinCredentials`, and `testStartingPinRules`.
 6. Deploy or update the web app and test each route using the exact query strings above.
-7. Add and verify the staff company email addresses used for account recovery. Recovery links are one-use, expire after 30 minutes, and reset both the PIN and registered device. Run setup again after schema changes to create the Staff Recovery Log and add the overtime settings.
+7. Add and verify the staff company email addresses used for account recovery. Recovery links are one-use, expire after 30 minutes, and reset the PIN; the person chooses whether the browser they are on also becomes their attendance device. Run setup again after schema changes to create the Staff Recovery Log and add the overtime settings.
 8. After upgrading the attendance schema, run `setupMovingSurfaceERPUpgrade` once. `Attendance Log` gains explicit `Checkout Time` and `Checkout Type` columns, and existing regular/overtime checkout rows are backfilled from their recorded event time and action.
 
 ## Admin roles and page permissions
 
-Super Admin and Admin can open the Users page in the admin portal to create or modify an access account for a staff member. The page provides an explicit per-page Read/Write matrix and account capabilities. Write access always includes Read. Dashboard Read is required to sign in. Creating a new account requires a four-digit Admin PIN; when modifying an account, leaving the PIN field blank preserves its current PIN. PINs are never returned to the browser or included in audit details.
+Super Admin and Admin can open the Users page in the admin portal to create or modify an access account for a staff member. The page provides an explicit per-page Read/Write matrix and account capabilities. Write access always includes Read. Dashboard Read is required to sign in. There is no separate admin PIN: a person signs in to the ERP with the same PIN they use for attendance, and an account for someone who has not created one yet tells you to ask them to do so first. PINs are never returned to the browser or included in audit details.
 
 Role labels use a standard dropdown (MD/CEO, SuperAdmin, Admin/HR, Accountant, Technical, Driver, Motion Artist, 3D Artist, Head of Operations, IoT Engineer, Lead Software Engineer, and Janitor). Choose **Add a role label…** to enter another label; it is added to future dropdowns after you save it on an account. Existing role labels in `Admin Users` are also retained in the list.
 
@@ -58,7 +58,7 @@ The `Admin Users` sheet adds four columns after its existing role and capability
 | Access Pages | Optional comma-separated page IDs that narrow a non-senior role's default read access. |
 | Write Pages | Optional comma-separated page IDs that narrow a non-senior role's default write access. |
 
-Run setup after upgrading, then fill Staff ID and Email for each enabled account. Login options are limited to active Admin Users rows whose Staff ID matches an active staff profile. Until mapped, an account cannot log in through the selector. Keep PINs unique where possible; when PINs are shared, the selected Staff ID binds login to the matching Admin Users row. Do not store credentials in documentation or source code.
+Run setup after upgrading, then fill Staff ID and Email for each enabled account. Login options are limited to active Admin Users rows whose Staff ID matches an active staff profile. Until mapped, an account cannot log in through the selector. The selected Staff ID is part of the credential, so two people choosing the same four digits cannot be confused. Do not store credentials in documentation or source code.
 
 For existing accounts with blank page lists, these role defaults provide the initial access:
 
@@ -82,7 +82,7 @@ Deploy the web app to execute as the workbook owner and choose an access audienc
 
 The `Settings` sheet contains `CLOSE_TIME` (default `17:00`), `OVERTIME_GRACE_MINUTES` (default `15`), and optional `OVERTIME_PAY_RATE` (amount per overtime day; `0` disables overtime pay). An overtime checkout is accepted starting at closing time plus the grace period in the configured timezone and is counted once per staff member per date. The dashboard and analytics read live overtime totals. Run `Sync Accountant View Rows` from the spreadsheet menu after attendance or pay-rate changes to refresh the payroll snapshot.
 
-Staff account recovery is initiated from the Attendance, Staff Portal, or Requisition page. The request must match the active staff ID and company email on file. A mismatch is rejected with an instruction to correct the details, and no email is sent. For a valid request, the message is sent only to the company email stored on the staff profile, never to an arbitrary address supplied in the form. Only a hash of the random recovery token is stored in `Staff Recovery Log`; the link is emailed, expires after 30 minutes, and can be used once to replace both the PIN and device token. Device tokens are stored and audited as SHA-256 fingerprints, not bearer values. Running setup migrates existing device tokens and old attendance-log token values to fingerprints. Portal actions require the registered device token when device enforcement is enabled. Recovery depends on Apps Script email delivery and a current web app deployment; staff who cannot access their company email must contact Admin.
+Staff account recovery is initiated from the Attendance, Staff Portal, or Requisition page. The request must match the active staff ID and company email on file. A mismatch is rejected with an instruction to correct the details, and no email is sent. For a valid request, the message is sent only to the company email stored on the staff profile, never to an arbitrary address supplied in the form. Only a hash of the random recovery token is stored in `Staff Recovery Log`; the link is emailed, expires after 30 minutes, and can be used once to set a new PIN, and, when the person leaves "Also make this browser my attendance device" ticked, to replace the registered device token. Device tokens are stored and audited as SHA-256 fingerprints, not bearer values. Running setup migrates existing device tokens and old attendance-log token values to fingerprints. Only attendance checks the registered device; the portal, requisitions and admin ERP do not. Recovery depends on Apps Script email delivery and a current web app deployment; staff who cannot access their company email must contact Admin.
 
 With a web app deployed as **Execute as: Me** and **Who has access: Anyone**, the recovery link is a short-lived bearer link: opening it does not verify which Google account is signed in. If opening the emailed link works only when a particular Google account is active, verify that the email contains the current public `/exec` deployment URL (not a development `/dev` URL or an older restricted deployment) and test that exact URL in a private browser window. See `PURGE-RUNBOOK.md` for a controlled process to clear operational records while retaining core settings and staff data.
 
@@ -308,6 +308,51 @@ overwriting anything already typed there.
 The client is resolved only after every other input has passed validation, so a
 lead rejected for a missing follow-up date leaves no half-made client behind.
 
+## Device registration and iPhones
+
+**Only marking attendance** requires a registered device, and only **Check In** requires the office location. Check Out and Overtime Check Out work from anywhere, including with location denied or unavailable, because people forget to sign out before leaving; the position is still recorded when the phone supplies one, and the log says `Location Not Provided` when it does not. The staff portal, requisitions and the admin ERP sign in with the Staff ID and PIN alone, from any device and any place. The attendance lock is one registered browser per person: the browser holds a random token in its site storage and the sheet holds only the SHA-256 hash of it. It is what stops one person clocking in for a colleague.
+
+### Why iPhones keep losing it
+
+The token lives only in the browser's storage, and iPhone browsers are the least willing to keep it:
+
+1. **The page runs in a cross-site frame.** Google serves every Apps Script web app inside a frame from `googleusercontent.com`. Safari treats storage in that position as third-party: it is partitioned, restricted by Intelligent Tracking Prevention, and can be discarded when the site has not been interacted with directly.
+2. **Links opened from WhatsApp, Gmail, Instagram and similar open in an in-app browser.** That browser has its own storage, separate from Safari, and often wipes it. A person who registers in Safari and opens tomorrow's link from WhatsApp is, to the server, on an unregistered device.
+3. **Safari, Chrome on iPhone and a Home Screen shortcut each have separate storage.** Registering in one and checking in from another looks identical to borrowing a colleague's phone.
+4. **Private tabs** keep nothing.
+5. **Failure was silent.** A blocked `localStorage` call used to throw in the middle of a check-in, and a token the browser failed to save was assumed saved.
+
+The server cannot tell "this iPhone lost its storage" from "this is somebody else's phone": both arrive with no token. That is why this cannot be fixed by code in the page alone.
+
+### What the application does now
+
+- Every page reads and writes the token through one wrapper (`window.deviceTokenStore` in `Index.html`) that never throws, reads back what it wrote, and asks the browser to treat storage as persistent.
+- The attendance page tells people **before** they type anything when the browser is blocking storage, or when their account is registered to a device but this browser has no token, and says what to do.
+- A check-in that succeeds but could not be saved warns the person that tomorrow may be rejected.
+- Rejections are split into **no token on this browser** and **a different device is registered**, each with its own guidance, and both point at the self-service *Lost your device? Recover your account* link before Admin.
+- **Rejected attempts are now logged** to the Activity Log as `ATTENDANCE REJECTED - DEVICE`, with the cause and a browser label (`iOS Safari`, `iOS (in-app browser or home-screen app)`, `iOS (Chrome/Firefox/Edge)`, `Android`). Filter that action to see whether the complaints are really iPhones, really in-app browsers, or really a handful of people.
+
+### The `DEVICE_MISMATCH_POLICY` setting
+
+| Value | Behaviour |
+| --- | --- |
+| `BLOCK` (default) | An unrecognised browser is rejected. Nothing about the lock changes. |
+| `REBIND_AT_OFFICE` | An unrecognised browser is re-registered and the check-in goes through, **only** when the PIN is correct and GPS puts the person inside an approved office location. |
+
+Anything else is treated as `BLOCK`. Rebinding is recorded as `Device Re-registered (...)` in the attendance log and as `DEVICE REBOUND AT OFFICE` in the Activity Log.
+
+**This is a policy decision, so it is off by default.** It means someone physically at the office who knows a colleague's PIN could register their own phone as the colleague's device. The location condition keeps the lock meaningful for anyone clocking in from elsewhere, and every rebind is logged, but it is a real loosening. Turn it on if the daily rejections cost more than that risk. **Replace every placeholder PIN first** (see *One PIN for every page*): with this policy on, an account still holding its placeholder can be claimed at the office without knowing any PIN.
+
+It applies to attendance only, because nothing else checks a device. Requisitions, expense claims and leave are protected by the PIN alone, with no device or location condition.
+
+Run **Setup / Repair ERP Upgrade** once to add the setting row to an existing workbook.
+
+### If it still happens
+
+- Ask the person to open the link in **Safari or Chrome in a normal tab**, never from inside WhatsApp or Gmail, and to use the same browser every day.
+- Better still, have them **Add to Home Screen** from Safari and always use that icon. Installed web apps get their own storage, which iOS does not expire the way it does for ordinary sites.
+- The durable fix is to host the front end on your own domain (for example under `movingsurface.com.ng`) so the token is first-party storage, with Apps Script behind it as the API. That removes the cross-site frame entirely and is the only change that addresses the root cause.
+
 ## Interface behaviour
 
 ### A reload keeps you where you are
@@ -355,6 +400,27 @@ Form fields show real placeholders rather than prefilled example values that had
 Deletions are routed through `window.confirmAppAction`, which opens a modal naming what will be removed and what will be kept. The server independently requires confirmation for a delete that would discard history, so the guard does not depend on the browser.
 
 Edit screens use `window.openFormModal`, a reusable modal that takes form markup, returns the values the caller asks for, and can refuse a save with an inline message.
+
+## One PIN for every page
+
+A person has one four-digit PIN. It lives in **Staff List** (column E) and is the credential for attendance, the staff portal, requisitions and the admin ERP.
+
+- **Admin sign-in checks the Staff List PIN.** An `Admin Users` row linked to a Staff ID is matched by that Staff ID and checked against that person's staff PIN. The `Admin Users` PIN column is read only for legacy rows with no Staff ID, so the two stores cannot drift apart.
+- **Creating, recovering or resetting a PIN changes it everywhere at once.** An admin reset that clears the PIN also stops that person signing in to the ERP until they choose a new one on the attendance page.
+- **Placeholder PINs are replaced, not kept.** The three sample accounts (MS-001, MS-002, MS-003) shipped with placeholder PINs. Until replaced they still sign in, but attendance treats such an account as having no PIN: it asks the person to create one, that choice replaces the placeholder in Staff List (and so on every page), and the placeholder can never be chosen again, by creation or by recovery. The new PIN is written only when the whole check-in succeeds, after the device, location and attendance-state checks, so a rejected request can never set someone's PIN. A fresh workbook seeds those accounts with no PIN at all.
+- **A new workbook has a bootstrap step.** With no PIN seeded, the first Super Admin creates theirs on the attendance page, from the office location, before the admin ERP will accept them. Whoever opens that page first for a given account claims it, so do this promptly after setup.
+- **Test helpers use no real PINs.** `testAdminLogin`, `testAdminPortalData` and `testERPPortalData` check the sign-in rules on synthetic data, and nothing writes a PIN to the log.
+
+### Migrating an existing workbook
+
+Run **Setup / Repair ERP Upgrade** (or *Migrate Projects / Leads Schema*). Step 6 is idempotent and backs up `Admin Users` (and `Staff List` if it writes to it) first. It:
+
+1. Links each `Admin Users` row with a blank Staff ID to the staff member whose name matches **exactly**. Ambiguous or unknown names are left unlinked and listed in the report, and those rows keep using their own PIN column so nobody is locked out.
+2. Moves a legacy admin PIN into Staff List only when that person has no valid PIN there yet.
+3. Where both PINs exist and differ, **keeps the Staff List PIN**. That person now types their staff PIN into the admin ERP, so tell them before you run it. The report counts these cases.
+4. Clears the PIN column on every linked row so the credential is stored once.
+
+The report lists names and counts only, never a PIN. The hidden `Backup Admin Users ...` sheet it leaves behind does contain the old PINs, so delete it once you are satisfied.
 
 ## PIN rules
 

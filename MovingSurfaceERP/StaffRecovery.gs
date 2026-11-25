@@ -122,16 +122,22 @@ function completeStaffAccountRecovery(payload) {
       return {success:false,message:'This recovery link is invalid or has expired. Request a new link.'};
     }
 
-    const newDeviceToken = staff.id+'-'+Utilities.getUuid();
+    if (isStartingPin_(staff.id,pin)) {
+      return {success:false,message:'Choose your own PIN. The starting PIN that came with your account cannot be reused.'};
+    }
+    // The device is replaced only when asked: a forgotten PIN reset from a laptop
+    // must not displace the phone the person marks attendance with.
+    const replaceDevice = !(payload && (payload.registerDevice === false || String(payload.registerDevice).toLowerCase() === 'false'));
+    const newDeviceToken = replaceDevice ? staff.id+'-'+Utilities.getUuid() : '';
     updateStaffPin_(staff.row,pin);
-    updateStaffDeviceToken_(staff.row,newDeviceToken);
+    if (replaceDevice) updateStaffDeviceToken_(staff.row,newDeviceToken);
     sheet.getRange(recoveryRow,5,1,2).setValues([[new Date(),'Completed']]);
     revokeStaffRecoveryRequests_(staff.id);
     SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ADMIN_RESET_LOG_SHEET)
-      .appendRow([new Date(),staff.id,staff.name,'PIN + New Device','YES','YES','Self-service Recovery','Lost device','One-time email recovery link']);
-    recordActivity_('Staff',staff.name,staff.id,'CREDENTIAL AND DEVICE RECOVERY','Staff',staff.id,'PIN reset and registered device replaced using a one-time email link.');
+      .appendRow([new Date(),staff.id,staff.name,replaceDevice ? 'PIN + New Device' : 'PIN only','YES',replaceDevice ? 'YES' : 'NO','Self-service Recovery',replaceDevice ? 'Lost device' : 'Forgot PIN','One-time email recovery link']);
+    recordActivity_('Staff',staff.name,staff.id,replaceDevice ? 'CREDENTIAL AND DEVICE RECOVERY' : 'PIN RECOVERY','Staff',staff.id,replaceDevice ? 'PIN reset and registered device replaced using a one-time email link.' : 'PIN reset using a one-time email link; registered device kept.');
     invalidatePublicStaffOptionsCache_();
-    return {success:true,staffId:staff.id,deviceToken:newDeviceToken,message:'Your PIN and registered device have been reset. This browser is now your registered device.'};
+    return {success:true,staffId:staff.id,deviceToken:newDeviceToken,message:replaceDevice ? 'Your PIN has been reset and this browser is now your registered attendance device.' : 'Your PIN has been reset. Your attendance device is unchanged.'};
   } catch (err) {
     recordActivity_('System','Recovery service','','RECOVERY COMPLETION FAILED','Staff Recovery','',String(err.message || err).slice(0,300));
     return {success:false,message:'We could not complete account recovery. Request a new link or contact Admin.'};

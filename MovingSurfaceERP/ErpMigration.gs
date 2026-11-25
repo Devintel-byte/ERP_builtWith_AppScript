@@ -17,6 +17,7 @@ function migrateProjectsAndLeadsSchema() {
     report.push(ensureProjectIdColumns_());
     report.push(migrateCrmPagePermissions_());
     report.push(stripRowPinnedFormulas_());
+    report.push(migrateAdminAccountsToStaffPins_());
     recordActivity_('System','Schema Migration','SYSTEM','MIGRATE','ERP Schema','projects-leads',report.join(' | ').slice(0,2000));
   } finally {
     lock.releaseLock();
@@ -315,4 +316,103 @@ function stripRowPinnedFormulas_() {
   }
   return 'Row-pinned formulas: ' + inventoryFixed + ' inventory row(s) converted to computed values; ' +
     'project balances are now recomputed from Project Cost Lines.';
+}
+
+
+/**
+ * Step 6: one PIN per person.
+ *
+ * Admin Users used to carry its own PIN column, separate from the PIN in Staff
+ * List, so a person had two PINs and a reset or recovery only changed one. Sign-in
+ * now checks Staff List for every account linked to a staff member.
+ *
+ *  - Rows with a blank Staff ID are linked to the staff member whose name matches
+ *    EXACTLY (case and spacing aside). Ambiguous or missing names are left alone
+ *    and listed, because guessing a link would hand someone else's staff identity
+ *    to an access account.
+ *  - A legacy admin PIN is moved into Staff List only when that person has no
+ *    valid PIN there yet. When both exist and differ, Staff List wins and the
+ *    conflict is counted: that person now signs in to the ERP with their staff PIN.
+ *  - The Admin Users PIN of every linked row is then cleared so the credential is
+ *    stored once.
+ *
+ * Idempotent, and backs both sheets up before writing. The report holds names and
+ * counts only, never a PIN.
+ */
+function migrateAdminAccountsToStaffPins_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const admin = ss.getSheetByName(ADMIN_USERS_SHEET);
+  const staffSheet = ss.getSheetByName(STAFF_SHEET);
+  if (!admin || admin.getLastRow() < 2 || !staffSheet || staffSheet.getLastRow() < 2) {
+    return 'Admin accounts: nothing to link to staff PINs.';
+  }
+  const adminRange = admin.getRange(2, 1, admin.getLastRow() - 1, 12);
+  const rows = adminRange.getValues();
+  const staffRows = staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, 18).getValues();
+
+  const byId = Object.create(null);
+  const byName = Object.create(null);
+  staffRows.forEach(function (row, index) {
+    const id = String(row[0] || '').trim();
+    if (id) byId[id] = index;
+    const name = String(row[1] || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (name) (byName[name] = byName[name] || []).push(index);
+  });
+
+  let linked = 0, moved = 0, conflicts = 0, cleared = 0;
+  const unlinked = [], awaitingPin = [], staffPinWrites = [];
+  let adminChanged = false;
+
+  rows.forEach(function (row, i) {
+    if (!String(row[0] || '').trim() && !String(row[8] || '').trim()) return;
+    let id = String(row[8] || '').trim();
+    if (!id) {
+      const hits = byName[String(row[0] || '').trim().toLowerCase().replace(/\s+/g, ' ')] || [];
+      if (hits.length !== 1) {
+        unlinked.push(String(row[0] || 'row ' + (i + 2)) + (hits.length ? ' (name matches several staff)' : ' (no matching staff name)'));
+        return;
+      }
+      id = String(staffRows[hits[0]][0]).trim();
+      row[8] = id;
+      linked++;
+      adminChanged = true;
+    }
+    if (byId[id] === undefined) {
+      unlinked.push(String(row[0] || 'row ' + (i + 2)) + ' (Staff ID ' + id + ' not in Staff List)');
+      return;
+    }
+    const staffIndex = byId[id];
+    const adminPin = normalizePin_(row[1]);
+    let staffPin = normalizePin_(staffRows[staffIndex][4]);
+    if (isValidPin_(adminPin)) {
+      if (!isValidPin_(staffPin)) {
+        staffRows[staffIndex][4] = adminPin;
+        staffPinWrites.push({row: staffIndex + 2, pin: adminPin});
+        staffPin = adminPin;
+        moved++;
+      } else if (staffPin !== adminPin) {
+        conflicts++;
+      }
+      row[1] = '';
+      cleared++;
+      adminChanged = true;
+    }
+    if (!isValidPin_(staffPin)) awaitingPin.push(String(row[0] || id));
+  });
+
+  if (adminChanged) {
+    backupSheet_(ADMIN_USERS_SHEET);
+    if (staffPinWrites.length) backupSheet_(STAFF_SHEET);
+    staffPinWrites.forEach(function (write) {
+      const cell = staffSheet.getRange(write.row, 5);
+      cell.setNumberFormat('@');
+      cell.setValue(write.pin);
+    });
+    adminRange.setValues(rows);
+    invalidatePublicStaffOptionsCache_();
+  }
+  return 'Admin accounts: ' + linked + ' linked to staff by exact name, ' + moved + ' legacy admin PIN(s) moved to Staff List, ' +
+    conflicts + ' conflicting PIN(s) resolved in favour of the Staff List PIN, ' + cleared + ' duplicate admin PIN(s) cleared.' +
+    (unlinked.length ? ' Not linked (legacy PIN column still used): ' + unlinked.join('; ') + '.' : '') +
+    (awaitingPin.length ? ' No PIN yet, must create one on the attendance page: ' + awaitingPin.join(', ') + '.' : '');
 }

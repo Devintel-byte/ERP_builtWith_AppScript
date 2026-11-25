@@ -6,6 +6,7 @@
     <p class="intro">Verify your identity and location to record today’s attendance.</p>
 
     <div id="modeBanner" class="mode-banner" aria-live="polite"></div>
+    <div id="deviceAdvice" class="device-advice" role="status" hidden></div>
     <div class="form-grid">
       <div class="field-span-2">
         <label for="staffId">Staff member</label>
@@ -121,7 +122,7 @@ function showStatus(message, kind, processTitle) {
   window.showAppToast(message,type,kind === 'bad' ? 'Needs attention' : kind === 'warn' ? 'Attendance notice' : 'Attendance recorded');
 }
 
-function tokenKey(staffId) { return 'MS_ATT_DEVICE_TOKEN_' + staffId; }
+function tokenKey(staffId) { return window.deviceTokenStore.key(staffId); }
 
 function digitsOnly(input) {
   input.value = input.value.replace(/\D/g, '').slice(0, 4);
@@ -169,6 +170,26 @@ function updateMode() {
   document.getElementById('confirmBox').hidden = pinSet;
   document.getElementById('pinLabel').textContent = pinSet ? 'Four-digit PIN' : 'Create a four-digit PIN';
   document.getElementById('modeBanner').textContent = pinSet ? 'Ready for daily attendance.' : (deviceSet ? 'PIN reset mode: use your registered device.' : 'First visit: create your PIN and register this device.');
+  showDeviceAdvice(select.value, pinSet, deviceSet);
+}
+
+/*
+ * Tells the person, before they type anything, when this browser is not the one
+ * registered to their account. The server would only reject the check-in after
+ * the GPS wait, with the same news and no way to act on it.
+ */
+function showDeviceAdvice(staffId, pinSet, deviceSet) {
+  const advice = document.getElementById('deviceAdvice');
+  if (!advice) return;
+  const store = window.deviceTokenStore;
+  let text = '';
+  if (!store.canPersist()) {
+    text = 'This browser is not keeping your device registration (a private tab, an in-app browser such as WhatsApp or Gmail, or blocked site data). Open this link in Safari or Chrome in a normal tab. If it keeps happening, use "Lost your device?" below.';
+  } else if (staffId && pinSet && deviceSet && !store.read(staffId)) {
+    text = 'A device is already registered to this account, but this browser has no registration. If this is your usual phone, open the link in the same browser you registered with. If your browser data was cleared, use "Lost your device?" below.';
+  }
+  advice.textContent = text;
+  advice.hidden = !text;
 }
 
 function submitAttendance(action) {
@@ -183,24 +204,36 @@ function submitAttendance(action) {
   if (!staffId) return showStatus('Select an active staff member.', 'bad');
   if (!/^\d{4}$/.test(pin)) return showStatus('Enter a four-digit PIN.', 'bad');
   if (!pinSet && pin !== confirmPin) return showStatus('PIN and confirmation do not match.', 'bad');
-  if (!navigator.geolocation) return showStatus('GPS is not supported on this device.', 'bad');
+  // Only check-in needs the location. A checkout goes ahead without one.
+  const needsLocation = action === 'Check In';
+  if (needsLocation && !navigator.geolocation) return showStatus('GPS is not supported on this device.', 'bad');
   attendanceSubmitting = true;
-  showStatus('Requesting location for '+action.toLowerCase()+'…', 'wait', processTitle);
-  navigator.geolocation.getCurrentPosition(function(position) {
+  showStatus(needsLocation ? 'Requesting location for '+action.toLowerCase()+'…' : 'Recording '+action.toLowerCase()+'…', 'wait', processTitle);
+  function send(position) {
     showStatus('Recording '+action.toLowerCase()+'…', 'wait', processTitle);
-    const payload = {staffId: staffId, pin: pin, confirmPin: confirmPin, action: action, deviceToken: localStorage.getItem(tokenKey(staffId)) || '', latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy, userAgent: navigator.userAgent};
+    const coords = position ? position.coords : null;
+    const payload = {staffId: staffId, pin: pin, confirmPin: confirmPin, action: action, deviceToken: window.deviceTokenStore.read(staffId), latitude: coords ? coords.latitude : '', longitude: coords ? coords.longitude : '', accuracy: coords ? coords.accuracy : '', userAgent: navigator.userAgent};
     google.script.run.withSuccessHandler(function(result) {
       attendanceSubmitting = false;
-      if (result&&result.success&&result.deviceToken) localStorage.setItem(tokenKey(staffId), result.deviceToken);
+      if (result&&result.success&&result.deviceToken) {
+        // A token the browser failed to keep is worse than none: the next visit is
+        // rejected. Say so now, while the person can still do something about it.
+        if (!window.deviceTokenStore.write(staffId, result.deviceToken)) {
+          result.message += ' This browser did not keep your device registration, so tomorrow you may be asked to recover your account. Open the link in Safari or Chrome in a normal tab to avoid that.';
+        }
+      }
       showAttendanceResult(result||{success:false,message:'The attendance service returned no result. Try again or contact Admin.'},action);
     }).withFailureHandler(function(error) {
       attendanceSubmitting = false;
       showAttendanceResult({success:false,message:'Attendance could not be submitted. '+(error.message || error)},action);
     }).recordAttendance(payload);
-  }, function() {
+  }
+  if (!needsLocation && !navigator.geolocation) return send(null);
+  navigator.geolocation.getCurrentPosition(send, function() {
+    if (!needsLocation) return send(null);   // a checkout does not depend on the location
     attendanceSubmitting = false;
     showAttendanceResult({success:false,message:'Location access was denied or unavailable. Check browser permissions and try again.'},action);
-  }, {enableHighAccuracy: true, timeout: 10000, maximumAge: 10000});
+  }, {enableHighAccuracy: true, timeout: needsLocation ? 10000 : 4000, maximumAge: 10000});
 }
 
 ['pin', 'confirmPin'].forEach(function(id) { document.getElementById(id).addEventListener('input', function() { digitsOnly(this); }); });

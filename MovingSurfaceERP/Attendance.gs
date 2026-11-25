@@ -19,25 +19,40 @@
       }
     }
 
-    let locInfo = getMatchedLocation_(Number(payload.latitude), Number(payload.longitude), settings);
-    if (String(staff.requireGps).toUpperCase() === 'YES' && String(settings.REQUIRE_GPS).toUpperCase() === 'YES' && !locInfo.allowed) {
+    // Only Check In has to happen at an approved location. Checking out, including
+    // overtime checkout, works from anywhere: people forget to sign out before they
+    // leave the office and must not be stuck unable to once they have gone. The
+    // position is still recorded when the phone supplies one.
+    const latitude = attendanceCoordinate_(payload.latitude);
+    const longitude = attendanceCoordinate_(payload.longitude);
+    const hasFix = latitude !== null && longitude !== null;
+    let locInfo = getMatchedLocation_(hasFix ? latitude : NaN, hasFix ? longitude : NaN, settings);
+    const locationRequired = action === 'Check In';
+    if (locationRequired && String(staff.requireGps).toUpperCase() === 'YES' && String(settings.REQUIRE_GPS).toUpperCase() === 'YES' && !locInfo.allowed) {
       return {success:false, message:'Attendance rejected. You are outside approved office locations.\n\nNearest: '+locInfo.name+'\nDistance: '+Math.round(locInfo.distance)+'m\nAllowed radius: '+locInfo.radius+'m'};
     }
 
     let deviceStatus = 'Device Verified';
     let tokenToReturn = '';
     let pinWasCreated = false;
+    let pinToCreate = '';
 
     const submittedPin = String(payload.pin == null ? '' : payload.pin).trim();
     const confirmedPin = String(payload.confirmPin == null ? '' : payload.confirmPin).trim();
     const storedPin = normalizePin_(staff.pin);
     if (!isValidPin_(submittedPin)) return {success:false, message:'PIN must be exactly 4 digits.'};
-    if (!staff.pin) {
-      if (String(settings.ALLOW_SELF_PIN).toUpperCase() !== 'YES') return {success:false, message:'PIN is not set. Contact Admin.'};
+    // A sample account still holding the placeholder PIN it shipped with is treated
+    // as having no PIN yet, so the person's own choice replaces it everywhere.
+    const selfPinAllowed = String(settings.ALLOW_SELF_PIN).toUpperCase() === 'YES';
+    const mustCreatePin = !staff.pin || (selfPinAllowed && isStartingPin_(staff.id, staff.pin));
+    if (mustCreatePin) {
+      if (!selfPinAllowed) return {success:false, message:'PIN is not set. Contact Admin.'};
       if (!isValidPin_(confirmedPin) || submittedPin !== confirmedPin) return {success:false, message:'PIN confirmation failed. Enter the same four digits in both fields.'};
-      updateStaffPin_(staff.row, submittedPin);
-      staff.pin = submittedPin;
-      pinWasCreated = true;
+      if (isStartingPin_(staff.id, submittedPin)) return {success:false, message:'Choose your own four-digit PIN. The starting PIN that came with your account cannot be kept.'};
+      // Only remembered here. It is written after the device and transition checks
+      // below, because a request they reject must not be able to set anyone's PIN:
+      // the admin ERP no longer checks a device, so a PIN is worth taking.
+      pinToCreate = submittedPin;
     } else {
       if (String(settings.REQUIRE_PIN).toUpperCase() === 'YES' && (!isValidPin_(submittedPin) || submittedPin !== storedPin)) {
         return {success:false, message:'Incorrect PIN. Attendance rejected.'};
@@ -46,15 +61,30 @@
 
     const requireDevice = String(staff.requireDevice).toUpperCase() === 'YES' && String(settings.REQUIRE_DEVICE_TOKEN).toUpperCase() === 'YES';
     if (requireDevice) {
-      if (!staff.deviceToken) {
-        if (String(settings.AUTO_REGISTER_DEVICE).toUpperCase() !== 'YES') return {success:false, message:'No device registered. Contact Admin.'};
+      const gpsEnforced = String(staff.requireGps).toUpperCase() === 'YES' && String(settings.REQUIRE_GPS).toUpperCase() === 'YES';
+      const deviceCheck = resolveDeviceCheck_(staff.deviceToken, payload.deviceToken, {
+        autoRegister: String(settings.AUTO_REGISTER_DEVICE).toUpperCase() === 'YES',
+        policy: settings.DEVICE_MISMATCH_POLICY,
+        insideApprovedLocation: gpsEnforced && locInfo.allowed === true
+      });
+      if (deviceCheck.outcome === 'register' || deviceCheck.outcome === 'rebind') {
         const newToken = staff.id + '-' + Utilities.getUuid();
         updateStaffDeviceToken_(staff.row, newToken);
         staff.deviceToken = sha256Hex_(newToken);
         tokenToReturn = newToken;
-        deviceStatus = 'New Device Registered';
-      } else if (!deviceTokenMatches_(staff.deviceToken,payload.deviceToken)) {
-        return {success:false, message:'Attendance rejected. This staff is already registered to another device.\n\nIf you changed phone/browser, contact Admin to reset your device.'};
+        deviceStatus = deviceCheck.outcome === 'register' ? 'New Device Registered'
+          : (deviceCheck.issue === 'missing' ? 'Device Re-registered (no registration on this browser)'
+            : 'Device Replaced (previous registration did not match)');
+        if (deviceCheck.outcome === 'rebind') {
+          recordActivity_('Staff',staff.name,staff.id,'DEVICE REBOUND AT OFFICE','Staff',staff.id,
+            deviceCheck.issue+' token; '+classifyUserAgent_(payload.userAgent)+'; inside '+locInfo.name+' ('+Math.round(locInfo.distance)+'m).');
+        }
+      } else if (deviceCheck.outcome === 'reject') {
+        // Rejections used to leave no trace, so nobody could tell whether the
+        // complaints were mostly iPhones, mostly one person, or mostly in-app browsers.
+        recordActivity_('Staff',staff.name,staff.id,'ATTENDANCE REJECTED - DEVICE','Attendance',dateKey,
+          deviceCheck.issue+' token; '+classifyUserAgent_(payload.userAgent)+'; policy '+settings.DEVICE_MISMATCH_POLICY+'.');
+        return {success:false, deviceIssue:deviceCheck.issue, message:deviceRejectionMessage_(deviceCheck.issue)};
       }
     }
     if (pinWasCreated || deviceStatus === 'New Device Registered') invalidatePublicStaffOptionsCache_();
@@ -64,6 +94,12 @@
     if (transitionError) {
       return {success:false,message:transitionError};
     }
+    if (pinToCreate) {
+      updateStaffPin_(staff.row, pinToCreate);
+      staff.pin = pinToCreate;
+      pinWasCreated = true;
+      invalidatePublicStaffOptionsCache_();
+    }
 
     const attendanceStatus = getAttendanceStatus_(now, action, settings);
     const penalty = getPenaltySummary_(staff, attendanceStatus, action, now, settings);
@@ -72,8 +108,9 @@
     const checkoutTime=checkoutType ? timeText : '';
     SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LOG_SHEET).appendRow([
       dateKey, staff.id, staff.name, staff.location, action, now, timeText,
-      Number(payload.latitude), Number(payload.longitude), Math.round(locInfo.distance),
-      locInfo.name, locInfo.allowed ? 'Inside Approved Location' : 'Outside Approved Location',
+      hasFix ? latitude : '', hasFix ? longitude : '', hasFix ? Math.round(locInfo.distance) : '',
+      hasFix ? locInfo.name : 'Location not provided',
+      !hasFix ? 'Location Not Provided' : locInfo.allowed ? 'Inside Approved Location' : 'Outside Approved Location',
       'QR/Web App', attendanceStatus, penalty.todayPenalty, penalty.monthLatePenalty,
       penalty.monthHalfDayDeduction, penalty.monthAbsenceDeduction, penalty.monthTotalDeduction,
       deviceStatus, deviceTokenFingerprint_(staff.deviceToken), payload.userAgent || '', (pinWasCreated ? 'PIN created. ' : '') + (payload.accuracy ? 'GPS accuracy: '+Math.round(payload.accuracy)+'m' : ''),
@@ -82,7 +119,7 @@
     recordActivity_('Staff',staff.name,staff.id,'ATTENDANCE '+action.toUpperCase(),'Attendance',dateKey,attendanceStatus+' at '+timeText+' from '+locInfo.name);
 
     const responseMessages=buildAttendanceResponseMessages_(
-      action,staff.name,timeText,attendanceStatus,locInfo.name,deviceStatus,locInfo.distance,pinWasCreated,penalty
+      action,staff.name,timeText,attendanceStatus,hasFix ? locInfo.name : 'Location not provided',deviceStatus,hasFix ? locInfo.distance : null,pinWasCreated,penalty
     );
     return {
       success:true,alert:['Late','Half Day','Absent'].includes(attendanceStatus),
@@ -99,14 +136,21 @@
   }
 }
 
+/** A usable latitude/longitude, or null when the phone sent nothing (blank is not zero). */
+function attendanceCoordinate_(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const number = Number(value);
+  return isFinite(number) ? number : null;
+}
+
 function buildAttendanceResponseMessages_(action,staffName,timeText,status,location,deviceStatus,distance,pinWasCreated,penalty) {
   const primaryMessage=action+' successful\n\n'+staffName+'\n'+timeText;
   const additionalLines=[
     'Status: '+status,
     'Location: '+location,
-    'Device: '+deviceStatus,
-    'Distance: '+Math.round(Number(distance)||0)+'m'
+    'Device: '+deviceStatus
   ];
+  if (distance !== null && distance !== undefined) additionalLines.push('Distance: '+Math.round(Number(distance)||0)+'m');
   if (pinWasCreated) additionalLines.push('','PIN created successfully. Keep it secure.');
   if (action==='Check In') {
     additionalLines.push(
@@ -158,3 +202,20 @@ function getPublicAttendanceSettings() {
 }
 
 /*************** STAFF REQUISITION PAGE ***************/
+
+/**
+ * What a staff member is told when their browser is not the registered one.
+ * "Missing" and "mismatch" need different advice: a browser that sends nothing
+ * has usually lost its storage, while a wrong token means another device is
+ * registered. Both point at the self-service recovery link before Admin.
+ */
+function deviceRejectionMessage_(issue) {
+  if (issue === 'unregistered') return 'No device registered. Contact Admin.';
+  if (issue === 'missing') {
+    return 'Attendance rejected. This browser has no saved device registration, but a device is already registered to your account.\n\n' +
+      'This usually means the link was opened in a different browser, an in-app browser (WhatsApp, Gmail), a private tab, or iPhone Safari cleared its site data.\n\n' +
+      'Open the attendance link in the browser you registered with, or tap "Lost your device? Recover your account" to register this one.';
+  }
+  return 'Attendance rejected. A different device is registered to your account.\n\n' +
+    'If you changed phone or browser, tap "Lost your device? Recover your account" below to register this one. Admin can also reset it.';
+}

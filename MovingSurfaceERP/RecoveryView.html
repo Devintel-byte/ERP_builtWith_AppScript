@@ -18,7 +18,9 @@
       <input id="pin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="4" pattern="[0-9]{4}" required placeholder="0000">
       <label for="confirmPin">Confirm new PIN</label>
       <input id="confirmPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="4" pattern="[0-9]{4}" required placeholder="0000">
-      <button class="btn btn-primary btn-lg" type="submit">Reset PIN and register this device</button>
+      <label class="check-row" for="registerDevice"><input id="registerDevice" type="checkbox" checked> Also make this browser my attendance device</label>
+      <p class="muted">Untick this if you only forgot your PIN and your phone is still the one you use to mark attendance.</p>
+      <button class="btn btn-primary btn-lg" type="submit">Reset my PIN</button>
     </form>
 
     <div id="status" class="status-message" role="status" aria-live="polite" hidden></div>
@@ -32,7 +34,7 @@ let recoveryProcessToast = '';
 function setStatus(message,kind) {
   if(recoveryProcessToast){window.dismissAppToast(recoveryProcessToast);recoveryProcessToast='';}
   if(kind==='wait'){recoveryProcessToast=window.showAppToast(message,'loading','Account recovery',{persistent:true});return;}
-  window.showAppToast(message,kind==='bad'?'error':'success',kind==='bad'?'Recovery failed':'Account recovery');
+  window.showAppToast(message,kind==='bad'?'error':kind==='warn'?'warning':'success',kind==='bad'?'Recovery failed':'Account recovery');
 }
 function requestRecovery(event) {
   event.preventDefault();
@@ -51,20 +53,20 @@ function completeRecovery(event) {
   event.preventDefault();
   const button=document.querySelector('#resetForm button');
   button.disabled=true;
-  setStatus('Resetting your PIN and registered device…','wait');
+  setStatus('Resetting your PIN…','wait');
   google.script.run.withSuccessHandler(function(result) {
     button.disabled=false;
     if (!result.success) return setStatus(result.message,'bad');
-    localStorage.setItem('MS_ATT_DEVICE_TOKEN_'+result.staffId, result.deviceToken);
-    setStatus(result.message+' You can now use this device for attendance and the staff portal.','ok');
+    const kept=result.deviceToken?window.deviceTokenStore.write(result.staffId, result.deviceToken):true;
+    setStatus(result.message+(kept?' Use the same PIN on attendance, the staff portal, requisitions and the admin ERP.':' However, this browser did not keep the registration. Open this link in Safari or Chrome in a normal tab (not a private tab or an in-app browser such as WhatsApp) and recover again.'),kept?'ok':'warn');
     document.getElementById('resetForm').hidden=true;
     document.getElementById('pageTitle').textContent='Account recovered';
-    document.getElementById('pageIntro').textContent='Your new PIN and device are ready to use.';
+    document.getElementById('pageIntro').textContent='Your new PIN is ready to use everywhere.';
     history.replaceState(null,'',location.pathname+'?recover=1');
   }).withFailureHandler(function(error) {
     button.disabled=false;
     setStatus('Recovery could not be completed. Request a new link or contact Admin.','bad');
-  }).completeStaffAccountRecovery({token:recoveryToken,pin:document.getElementById('pin').value,confirmPin:document.getElementById('confirmPin').value});
+  }).completeStaffAccountRecovery({token:recoveryToken,pin:document.getElementById('pin').value,confirmPin:document.getElementById('confirmPin').value,registerDevice:document.getElementById('registerDevice').checked});
 }
 ['pin','confirmPin'].forEach(function(id) {
   document.getElementById(id).addEventListener('input',function(){this.value=this.value.replace(/\D/g,'').slice(0,4);});
@@ -73,7 +75,7 @@ if (recoveryToken) {
   document.getElementById('requestForm').hidden=true;
   document.getElementById('resetForm').hidden=false;
   document.getElementById('pageTitle').textContent='Set a new PIN';
-  document.getElementById('pageIntro').textContent='This one-time link will reset your PIN and register this browser as your new device.';
+  document.getElementById('pageIntro').textContent='This one-time link sets a new PIN. The same PIN works on attendance, the staff portal, requisitions and the admin ERP.';
 }
 google.script.run.withSuccessHandler(function(url){
   if(url)document.getElementById('attendanceLink').href=url;

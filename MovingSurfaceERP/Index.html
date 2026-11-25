@@ -101,6 +101,63 @@
   <body data-canonical-url="<?= canonicalUrl ?>">
     <div id="appToasts" class="toast-stack" aria-live="polite" aria-atomic="false"></div>
     <script>
+      /*
+       * The registered-device token lives in this browser's site storage, and every
+       * page that needs it goes through here instead of touching localStorage.
+       *
+       * Why a wrapper: on iPhone, Safari can refuse or silently discard storage for
+       * an Apps Script page (it is served inside a cross-site frame; private tabs,
+       * in-app browsers and Intelligent Tracking Prevention all apply). A bare
+       * localStorage call then throws, which used to abort a check-in half-way, and
+       * a token that was "saved" could be gone the next morning. The wrapper never
+       * throws, reads back what it wrote so a failed save is detected rather than
+       * assumed, and tells the page when this browser is not keeping the token.
+       */
+      window.deviceTokenStore = (function() {
+        const PREFIX = 'MS_ATT_DEVICE_TOKEN_';
+        const state = {writable: null};
+        function key(staffId) { return PREFIX + staffId; }
+        function read(staffId) {
+          try { return window.localStorage.getItem(key(staffId)) || ''; } catch (error) { return ''; }
+        }
+        function write(staffId, token) {
+          if (!staffId || !token) return false;
+          try {
+            window.localStorage.setItem(key(staffId), token);
+            state.writable = window.localStorage.getItem(key(staffId)) === token;
+          } catch (error) {
+            state.writable = false;
+          }
+          // Asks the browser to treat this site's storage as important. Safari honours
+          // it for installed home-screen apps; elsewhere it is a harmless no-op.
+          try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (error) {}
+          return state.writable;
+        }
+        /** True when the browser will keep a value; probed without touching a real token. */
+        function canPersist() {
+          if (state.writable !== null) return state.writable;
+          try {
+            const probe = PREFIX + '__probe__';
+            window.localStorage.setItem(probe, '1');
+            state.writable = window.localStorage.getItem(probe) === '1';
+            window.localStorage.removeItem(probe);
+          } catch (error) {
+            state.writable = false;
+          }
+          return state.writable;
+        }
+        /** Plain-language label for where this page is running, for support messages. */
+        function environment() {
+          const ua = navigator.userAgent || '';
+          const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+          if (!ios) return 'other';
+          if (/CriOS|FxiOS|EdgiOS/.test(ua)) return 'ios-alt-browser';
+          if (/FBAN|FBAV|Instagram|Line\/|MicroMessenger|GSA\//.test(ua) || !/Safari\//.test(ua)) return 'ios-in-app';
+          return 'ios-safari';
+        }
+        return {key: key, read: read, write: write, canPersist: canPersist, environment: environment};
+      })();
+
       let appToastSequence = 0;
       window.showAppToast = function(message, type, title, options) {
         const stack = document.getElementById('appToasts');

@@ -70,6 +70,7 @@ function seedDefaults_() {
     ['ALLOW_SELF_PIN','YES','Staff can create first PIN on first use'],
     ['REQUIRE_DEVICE_TOKEN','YES','Locks staff application access to the registered phone/browser'],
     ['AUTO_REGISTER_DEVICE','YES','Registers first device automatically'],
+    ['DEVICE_MISMATCH_POLICY','BLOCK','BLOCK rejects a check-in from an unrecognised browser (default). REBIND_AT_OFFICE re-registers it instead, but only when the PIN is right and GPS puts the person inside an approved location. Use it if iPhone users keep losing their registration.'],
     ['DEFAULT_LATE_PENALTY','1000','Default late penalty when staff row is blank'],
     ['HALF_DAY_PERCENT','50','Half day deduction percent of daily rate'],
     ['WORKDAYS','MON,TUE,WED,THU,FRI','Working days used for payroll']
@@ -96,18 +97,20 @@ function seedDefaults_() {
   const admin = ss.getSheetByName(ADMIN_USERS_SHEET);
   if (admin.getLastRow() < 2) {
     admin.getRange(2,1,3,12).setValues([
-      ['Kome Vreno','2012','YES','Super Admin','YES','YES','YES','YES','','','',''],
-      ['Accountant','1012','YES','Accountant','YES','NO','NO','NO','','','',''],
-      ['Admin Assistant','0003','YES','Admin Assistant','YES','NO','NO','NO','','','','']
+      // No PIN is stored here: Staff List holds each person's one PIN, which they
+      // create on the attendance page. The Staff ID is what links the two.
+      ['Kome Vreno','','YES','Super Admin','YES','YES','YES','YES','MS-001','','',''],
+      ['Accountant','','YES','Accountant','YES','NO','NO','NO','MS-002','','',''],
+      ['Admin Assistant','','YES','Admin Assistant','YES','NO','NO','NO','MS-003','','','']
     ]);
   }
 
   const staff = ss.getSheetByName(STAFF_SHEET);
   if (staff.getLastRow() < 2) {
     staff.getRange(2,1,3,29).setValues([
-      ['MS-001','Kome Vreno','Management','Abuja','2012','','joemugbeh@gmail.com','','YES','YES',0,1000,'','','Owner/admin sample',new Date(2026,0,1),'Permanent','Active','','MD/CEO','','','','',20,20,22,'','YES'],
-      ['MS-002','Accountant','Accounts','Abuja','1012','','accounts@movingsurface.com.ng','','YES','YES',0,1000,'','','Accounts sample',new Date(2026,0,1),'Permanent','Active','','Accountant','','','','',20,20,22,'','YES'],
-      ['MS-003','Admin Assistant','Admin','Abuja','0003','','','','YES','YES',0,1000,'','','Admin sample',new Date(2026,0,1),'Permanent','Active','','Admin Assistant','','','','',20,20,22,'','YES']
+      ['MS-001','Kome Vreno','Management','Abuja','','','joemugbeh@gmail.com','','YES','YES',0,1000,'','','Owner/admin sample',new Date(2026,0,1),'Permanent','Active','','MD/CEO','','','','',20,20,22,'','YES'],
+      ['MS-002','Accountant','Accounts','Abuja','','','accounts@movingsurface.com.ng','','YES','YES',0,1000,'','','Accounts sample',new Date(2026,0,1),'Permanent','Active','','Accountant','','','','',20,20,22,'','YES'],
+      ['MS-003','Admin Assistant','Admin','Abuja','','','','','YES','YES',0,1000,'','','Admin sample',new Date(2026,0,1),'Permanent','Active','','Admin Assistant','','','','',20,20,22,'','YES']
     ]);
   }
 

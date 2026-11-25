@@ -1,9 +1,9 @@
 ﻿function testERPPortalData() {
-  setupERPModuleSheets_();
-  ['2012','1012','0003'].forEach(function(pin) {
-    const data = adminGetPortalData({adminPin:pin});
-    Logger.log('PIN ' + pin + ' => success=' + data.success + ', user=' + (data.user ? data.user.name : data.message));
-  });
+  // A credential that matches no account must be refused. This deliberately uses
+  // no real PIN, so nothing here depends on or exposes anyone's credentials.
+  const refused = adminGetPortalData({adminPin:'0000|NO-SUCH-STAFF'});
+  if (refused.success) throw new Error('A credential that matches no account must not open the portal.');
+  Logger.log('Portal data refuses an unknown credential.');
 }
 
 function testRoutingAndPinRules() {
@@ -754,4 +754,134 @@ function testClientDetailCapture() {
   }
 
   Logger.log('testClientDetailCapture passed.');
+}
+
+
+/**
+ * Device registration policy. The rebind path exists for browsers that lose
+ * their stored token (notably iPhone Safari and in-app browsers), so what
+ * matters here is that it opens ONLY for the right person in the right place.
+ */
+function testDeviceMismatchPolicy() {
+  const token = 'MS-001-registered-token';
+  const stored = sha256Hex_(token);
+  const strict = {policy: 'BLOCK', insideApprovedLocation: true, autoRegister: true};
+  const lenient = {policy: 'REBIND_AT_OFFICE', insideApprovedLocation: true, autoRegister: true};
+
+  if (resolveDeviceCheck_(stored, token, strict).outcome !== 'match') throw new Error('The registered token must match.');
+  if (resolveDeviceCheck_('', '', strict).outcome !== 'register') throw new Error('An unregistered account registers its first device.');
+  if (resolveDeviceCheck_('', '', {autoRegister: false}).outcome !== 'reject') throw new Error('Auto-registration off must reject.');
+
+  // The default policy never loosens, even at the office with a correct PIN.
+  const blocked = resolveDeviceCheck_(stored, '', strict);
+  if (blocked.outcome !== 'reject' || blocked.issue !== 'missing') throw new Error('BLOCK must reject a browser with no token: ' + JSON.stringify(blocked));
+  const wrong = resolveDeviceCheck_(stored, 'someone-elses-token', strict);
+  if (wrong.outcome !== 'reject' || wrong.issue !== 'mismatch') throw new Error('BLOCK must reject a wrong token: ' + JSON.stringify(wrong));
+
+  // Opt-in policy: re-register, but only inside an approved location.
+  const rebound = resolveDeviceCheck_(stored, '', lenient);
+  if (rebound.outcome !== 'rebind' || rebound.issue !== 'missing') throw new Error('REBIND_AT_OFFICE must re-register a missing token at the office: ' + JSON.stringify(rebound));
+  if (resolveDeviceCheck_(stored, 'someone-elses-token', lenient).outcome !== 'rebind') throw new Error('A wrong token at the office is also re-registered.');
+  const away = resolveDeviceCheck_(stored, '', {policy: 'REBIND_AT_OFFICE', insideApprovedLocation: false});
+  if (away.outcome !== 'reject') throw new Error('Outside an approved location the device lock must still hold.');
+  const unknownLocation = resolveDeviceCheck_(stored, '', {policy: 'REBIND_AT_OFFICE'});
+  if (unknownLocation.outcome !== 'reject') throw new Error('No proof of location means no rebind.');
+
+  // Anything but the exact opt-in value stays strict.
+  ['', 'YES', 'rebind', 'ALWAYS', null, undefined].forEach(function (value) {
+    const expected = String(value || '').trim().toUpperCase() === 'REBIND_AT_OFFICE' ? 'REBIND_AT_OFFICE' : 'BLOCK';
+    if (normalizeDeviceMismatchPolicy_(value) !== expected) throw new Error('Unexpected policy for ' + value);
+  });
+  if (normalizeDeviceMismatchPolicy_(' rebind_at_office ') !== 'REBIND_AT_OFFICE') throw new Error('The opt-in value is case and space tolerant.');
+
+  // Guidance differs by cause, and both point at self-service recovery first.
+  const missing = deviceRejectionMessage_('missing');
+  const mismatch = deviceRejectionMessage_('mismatch');
+  if (missing === mismatch) throw new Error('A missing token and a wrong token need different advice.');
+  [missing, mismatch].forEach(function (text) {
+    if (text.indexOf('Recover your account') === -1) throw new Error('The message must name the recovery link: ' + text);
+  });
+  Logger.log('testDeviceMismatchPolicy passed.');
+}
+
+function testUserAgentClassification() {
+  const safari = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+  const inApp = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
+  const chromeIos = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0 Mobile/15E148 Safari/604.1';
+  const android = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36';
+  if (classifyUserAgent_(safari) !== 'iOS Safari') throw new Error('Plain Safari: ' + classifyUserAgent_(safari));
+  if (classifyUserAgent_(inApp).indexOf('in-app') === -1) throw new Error('A WebView with no Safari token is an in-app browser: ' + classifyUserAgent_(inApp));
+  if (classifyUserAgent_(chromeIos).indexOf('Chrome') === -1) throw new Error('Chrome on iOS: ' + classifyUserAgent_(chromeIos));
+  if (classifyUserAgent_(android) !== 'Android') throw new Error('Android: ' + classifyUserAgent_(android));
+  if (classifyUserAgent_('') !== 'Unknown') throw new Error('An empty user agent is Unknown.');
+  Logger.log('testUserAgentClassification passed.');
+}
+
+
+/**
+ * One PIN per person. Synthetic accounts only: no real PIN is typed here, and
+ * none is written to the log.
+ */
+function testSinglePinCredentials() {
+  const rows = [
+    ['Linked Admin','0000','YES','Admin','YES','YES','YES','YES','STAFF-1'],
+    ['Other Admin','0000','YES','Accountant','YES','NO','NO','NO','STAFF-2'],
+    ['Legacy Admin','4321','YES','Admin','YES','YES','YES','YES','']
+  ];
+  const staffPins = {'STAFF-1':'7777','STAFF-2':'7777'};
+
+  // The staff PIN is the credential for a linked account, whatever the admin column says.
+  const ok = findAdminCredentialMatch_(rows,'7777','STAFF-1',staffPins);
+  if (!ok || ok.row[0] !== 'Linked Admin') throw new Error('A linked account must sign in with its staff PIN.');
+  if (findAdminCredentialMatch_(rows,'0000','STAFF-1',staffPins) !== null) {
+    throw new Error('The old admin-column PIN must stop working once the account is linked to a staff PIN.');
+  }
+  // Two people may now pick the same digits: the Staff ID tells them apart.
+  const other = findAdminCredentialMatch_(rows,'7777','STAFF-2',staffPins);
+  if (!other || other.row[0] !== 'Other Admin') throw new Error('A shared PIN must resolve by Staff ID.');
+  // A linked account cannot be opened without naming it, or while naming someone else.
+  if (findAdminCredentialMatch_(rows,'7777','',staffPins) !== null) throw new Error('A linked account needs its Staff ID.');
+  if (findAdminCredentialMatch_(rows,'7777','STAFF-9',staffPins) !== null) throw new Error('An unknown Staff ID must not match.');
+  // A staff member with no valid PIN yet cannot sign in with anything.
+  if (findAdminCredentialMatch_(rows,'0000','STAFF-1',{}) !== null) {
+    throw new Error('A linked account with no staff PIN must not fall back to the admin column.');
+  }
+  // Legacy rows with no Staff ID keep working from their own column.
+  const legacy = findAdminCredentialMatch_(rows,'4321','',staffPins);
+  if (!legacy || legacy.row[0] !== 'Legacy Admin') throw new Error('An unlinked legacy row must keep its own PIN.');
+  // Inactive accounts never match.
+  const inactive = [['Off','7777','NO','Admin','YES','NO','NO','NO','STAFF-1']];
+  if (findAdminCredentialMatch_(inactive,'7777','STAFF-1',staffPins) !== null) throw new Error('Inactive accounts must not sign in.');
+  // Two access accounts linked to one staff member is ambiguous and refused.
+  const dupes = rows.concat([['Duplicate','0000','YES','Technical','YES','NO','NO','NO','STAFF-1']]);
+  if (findAdminCredentialMatch_(dupes,'7777','STAFF-1',staffPins) !== null) throw new Error('Duplicate Staff ID mappings must be refused.');
+  Logger.log('testSinglePinCredentials passed.');
+}
+
+/**
+ * The placeholder PINs shipped for the sample accounts. The digits are never
+ * written here: the test finds them by search, which also proves each ID has
+ * exactly one.
+ */
+function testStartingPinRules() {
+  const found = {};
+  ['MS-001','MS-002','MS-003'].forEach(function (id) {
+    found[id] = [];
+    for (let n = 0; n < 10000; n++) {
+      const pin = ('000' + n).slice(-4);
+      if (isStartingPin_(id, pin)) found[id].push(pin);
+    }
+    if (found[id].length !== 1) throw new Error(id + ' must have exactly one starting PIN, found ' + found[id].length);
+  });
+  // A starting PIN belongs to its own account only.
+  if (isStartingPin_('MS-002', found['MS-001'][0])) throw new Error('A starting PIN must not match a different staff ID.');
+  // Real staff and malformed values never count as placeholders.
+  if (isStartingPin_('MS-100', found['MS-001'][0])) throw new Error('Only the sample accounts carry a starting PIN.');
+  if (isStartingPin_('MS-001', '') || isStartingPin_('MS-001', 'abcd') || isStartingPin_('', found['MS-001'][0])) {
+    throw new Error('Blank or malformed input is not a starting PIN.');
+  }
+  // A sheet that stored the PIN as a number loses its leading zeros; it must still be recognised.
+  const zero = found['MS-003'][0];
+  if (!isStartingPin_('MS-003', Number(zero))) throw new Error('A numeric cell must still be recognised: ' + zero);
+  Logger.log('testStartingPinRules passed.');
 }

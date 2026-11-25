@@ -21,7 +21,7 @@ function getPublicStaffOptions() {
     return {
       id:staff.id,
       name:staff.name,
-      pinSet:isValidPin_(normalizePin_(staff.pin)),
+      pinSet:isValidPin_(normalizePin_(staff.pin)) && !isStartingPin_(staff.id, staff.pin),
       deviceSet:Boolean(staff.deviceToken)
     };
   });
@@ -33,21 +33,20 @@ function invalidatePublicStaffOptionsCache_() {
   CacheService.getScriptCache().remove('PUBLIC_ACTIVE_STAFF_OPTIONS');
 }
 
-function validateStaffPortalLogin_(staffId, pin, deviceToken) {
+/**
+ * Signs a staff member in to the portal, requisitions, leave and expenses.
+ *
+ * The Staff ID and PIN are the whole credential, from any device and any
+ * location. Only marking attendance checks the registered device and GPS.
+ * Clients used to send a device token here as well; it is ignored.
+ */
+function validateStaffPortalLogin_(staffId, pin) {
   const staff = getStaffById_(staffId);
   if (!staff) throw new Error('Staff not found or inactive.');
   if (!staff.pin) throw new Error('Your PIN is not set. Please use attendance first to create your PIN, or contact Admin.');
   const suppliedPin = String(pin == null ? '' : pin).trim();
   if (!isValidPin_(suppliedPin) || normalizePin_(staff.pin) !== suppliedPin) throw new Error('Invalid Staff ID or PIN. Enter all four digits, including any leading zero.');
-  if (isStaffDeviceRequired_(staff) && !deviceTokenMatches_(staff.deviceToken,deviceToken)) {
-    throw new Error('This device is not registered for your account. Use account recovery or contact Admin.');
-  }
   return staff;
-}
-
-function isStaffDeviceRequired_(staff) {
-  const settings = getSettings_();
-  return String(staff.requireDevice).toUpperCase() === 'YES' && String(settings.REQUIRE_DEVICE_TOKEN).toUpperCase() === 'YES';
 }
 
 function getStaffPortalData_(staff) {

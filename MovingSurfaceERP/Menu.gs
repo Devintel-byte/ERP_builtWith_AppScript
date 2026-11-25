@@ -35,9 +35,11 @@ function showWebAppHelp() {
 }
 
 function testAdminLogin() {
-  ['2012', '2000', '1234', 'wrong'].forEach(pin => {
-    Logger.log('PIN ' + pin + ' => ' + JSON.stringify(getAdminUser_(pin)));
-  });
+  // Sign-in rules are checked on synthetic accounts, so no real PIN is typed into
+  // source or written to the log.
+  testAdminCredentialResolution();
+  testSinglePinCredentials();
+  testStartingPinRules();
 }
 
 function testRoutes() {
@@ -47,6 +49,5 @@ function testRoutes() {
 }
 
 function testAdminPortalData() {
-  const result = adminGetPortalData({adminPin: '2012'});
-  Logger.log(JSON.stringify(result).substring(0, 5000));
+  testERPPortalData();
 }

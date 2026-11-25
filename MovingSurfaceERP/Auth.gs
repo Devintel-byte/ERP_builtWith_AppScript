@@ -6,7 +6,7 @@ function getAdminUser_(pin) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ADMIN_USERS_SHEET);
   if (!sh || sh.getLastRow() < 2) return {valid:false};
   const rows = sh.getRange(2,1,sh.getLastRow()-1,Math.max(12,sh.getLastColumn())).getValues();
-  const matched = findAdminCredentialMatch_(rows,suppliedPin,selectedStaffId);
+  const matched = findAdminCredentialMatch_(rows,suppliedPin,selectedStaffId,getStaffPinMapFor_(selectedStaffId));
   if (!matched) return {valid:false};
   const row = matched.row;
   const user = {
@@ -20,13 +20,35 @@ function getAdminUser_(pin) {
   return user;
 }
 
-function findAdminCredentialMatch_(rows,suppliedPin,selectedStaffId) {
+/**
+ * Finds the Admin Users row a sign-in belongs to.
+ *
+ * A person has ONE PIN, and it lives in Staff List. When an access account is
+ * linked to a staff member (Staff ID column), that staff member's PIN is the
+ * credential and the Staff ID chosen at sign-in must be the linked one. The
+ * Admin Users PIN column is only consulted for legacy rows with no Staff ID, so
+ * the two stores cannot drift apart and a reset or recovery that changes the
+ * staff PIN changes admin sign-in with it.
+ *
+ * `staffPins` is {staffId: pin} for active staff with a valid PIN. When it is
+ * not supplied every row falls back to its own PIN column, which keeps older
+ * callers and tests working.
+ */
+function findAdminCredentialMatch_(rows,suppliedPin,selectedStaffId,staffPins) {
+  const useStaffPins = Boolean(staffPins) && typeof staffPins === 'object';
   const matches = [];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    if (normalizePin_(row[1]) === suppliedPin && String(row[2]).toUpperCase() === 'YES') {
-      matches.push({row:row,index:i});
+    if (String(row[2]).toUpperCase() !== 'YES') continue;
+    const linkedId = String(row[8] || '').trim();
+    let pinMatches;
+    if (useStaffPins && linkedId) {
+      if (selectedStaffId !== linkedId) continue;
+      pinMatches = Object.prototype.hasOwnProperty.call(staffPins,linkedId) && staffPins[linkedId] === suppliedPin;
+    } else {
+      pinMatches = normalizePin_(row[1]) === suppliedPin;
     }
+    if (pinMatches) matches.push({row:row,index:i});
   }
   const candidates = selectedStaffId
     ? matches.filter(item => String(item.row[8] || '').trim() === selectedStaffId)
@@ -136,6 +158,48 @@ function isValidPin_(pin) {
   return /^\d{4}$/.test(String(pin || ''));
 }
 
+/**
+ * {staffId: pin} for the one staff member signing in, if they are active and hold a
+ * valid PIN. A linked admin row is only ever matched against the Staff ID chosen at
+ * sign-in, so there is no reason to read the whole roster on every admin request.
+ */
+function getStaffPinMapFor_(staffId) {
+  const map = Object.create(null);
+  const id = String(staffId || '').trim();
+  if (!id) return map;
+  const staff = getStaffById_(id);
+  const pin = staff ? normalizePin_(staff.pin) : '';
+  if (isValidPin_(pin)) map[id] = pin;
+  return map;
+}
+
+/**
+ * The three sample accounts shipped with placeholder PINs. They are kept here as
+ * digests only so the digits are not repeated in source; that is tidiness, not
+ * secrecy, because four digits are trivially reversible.
+ *
+ * A placeholder still signs in until the person creates their own PIN, but
+ * attendance treats it as "not set": the person is asked to choose a PIN, which
+ * then replaces the placeholder for every page, and the placeholder can never be
+ * chosen again.
+ */
+function startingPinDigests_() {
+  return {
+    'MS-001':'4b9a7f50c0bb198c6f5414c5a8459f5d216d34ab521ea94c060ea35cac66f900',
+    'MS-002':'165940940a02a187e4463ff467090930038c5af8fc26107bf301e714f599a1da',
+    'MS-003':'446e21f212ab200933c4c9a0802e1ff0c410bbd75fca10168746fc49883096db'
+  };
+}
+
+/** True when `pin` is the placeholder that shipped for this staff ID. */
+function isStartingPin_(staffId, pin) {
+  const digests = startingPinDigests_();
+  const id = String(staffId || '').trim();
+  if (!Object.prototype.hasOwnProperty.call(digests,id)) return false;
+  const normalized = normalizePin_(pin);
+  return isValidPin_(normalized) && sha256Hex_(normalized) === digests[id];
+}
+
 function updateStaffPin_(row, pin) {
   const normalizedPin = String(pin == null ? '' : pin).trim();
   if (!isValidPin_(normalizedPin)) throw new Error('PIN must be exactly 4 digits.');
@@ -154,6 +218,45 @@ function deviceTokenMatches_(storedToken, submittedToken) {
   if (!stored || !submitted) return false;
   if (/^[a-f0-9]{64}$/i.test(stored)) return stored.toLowerCase() === sha256Hex_(submitted);
   return stored === submitted;
+}
+
+/** Anything other than the explicit opt-in keeps the strict behaviour. */
+function normalizeDeviceMismatchPolicy_(value) {
+  return String(value == null ? '' : value).trim().toUpperCase() === 'REBIND_AT_OFFICE' ? 'REBIND_AT_OFFICE' : 'BLOCK';
+}
+
+/**
+ * Decides what to do with the device token a browser sent.
+ *
+ * Outcomes: 'match', 'register' (nothing on file yet), 'rebind' (replace the
+ * registration), or 'reject'. `issue` says why a request did not match:
+ * 'missing' means this browser sent no token at all (storage cleared, private
+ * tab, in-app browser, a different browser), 'mismatch' means it sent the wrong
+ * one. 'missing' is what an iPhone that discarded its site data produces, so the
+ * two get different guidance.
+ *
+ * A rebind needs the opt-in policy, a correct PIN (checked by the caller before
+ * this runs) and proof the person is physically at an approved location. The
+ * location condition is what keeps the device lock useful: someone clocking in
+ * for a colleague from elsewhere is still refused.
+ */
+function resolveDeviceCheck_(storedToken, submittedToken, options) {
+  const opts = options || {};
+  const stored = String(storedToken || '');
+  if (!stored) return {outcome: opts.autoRegister ? 'register' : 'reject', issue: 'unregistered'};
+  if (deviceTokenMatches_(stored, submittedToken)) return {outcome: 'match', issue: ''};
+  const issue = String(submittedToken || '') ? 'mismatch' : 'missing';
+  const canRebind = normalizeDeviceMismatchPolicy_(opts.policy) === 'REBIND_AT_OFFICE' && opts.insideApprovedLocation === true;
+  return {outcome: canRebind ? 'rebind' : 'reject', issue: issue};
+}
+
+/** Coarse browser label for support logs; the full user agent is already recorded separately. */
+function classifyUserAgent_(userAgent) {
+  const ua = String(userAgent || '');
+  if (!/iPhone|iPad|iPod/.test(ua)) return /Android/.test(ua) ? 'Android' : (ua ? 'Other' : 'Unknown');
+  if (/CriOS|FxiOS|EdgiOS/.test(ua)) return 'iOS (Chrome/Firefox/Edge)';
+  if (/FBAN|FBAV|Instagram|Line\/|MicroMessenger|GSA\//.test(ua) || !/Safari\//.test(ua)) return 'iOS (in-app browser or home-screen app)';
+  return 'iOS Safari';
 }
 
 function deviceTokenFingerprint_(storedToken) {

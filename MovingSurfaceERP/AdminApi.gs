@@ -186,7 +186,7 @@ function adminGetPortalData(payload) {
     const staffOptions = staffRaw.map(s => `<option value="${escapeHtml_(s.id)}">${escapeHtml_(s.name)} - ${escapeHtml_(s.id)}</option>`).join('');
     const staff = adminCanReadPage_(user,'staff') ? allStaff.map(s => ({
       id:s.id,name:s.name,department:s.department,location:s.location,
-      pinSet:isValidPin_(normalizePin_(s.pin))?'YES':'NO',deviceSet:s.deviceToken?'YES':'NO',status:s.status||'Active',
+      pinSet:isValidPin_(normalizePin_(s.pin)) && !isStartingPin_(s.id,s.pin)?'YES':'NO',deviceSet:s.deviceToken?'YES':'NO',status:s.status||'Active',
       companyEmail:s.companyEmail,personalEmail:s.personalEmail,requireGps:s.requireGps,requireDevice:s.requireDevice,
       monthlySalary:s.monthlySalary,latePenalty:s.latePenalty,leaveAllowance:s.leaveAllowance,phone:s.phone,notes:s.notes,
       dateJoined:erpDate_(s.dateJoined),employmentType:s.employmentType,exitDate:erpDate_(s.exitDate),
@@ -355,8 +355,6 @@ function adminSaveUserPrivileges(payload) {
     if (canView && !readPages.includes('dashboard')) {
       return {success:false,message:'Dashboard read access is required to sign in to the portal.'};
     }
-    const pin = String(payload.pin || '').trim();
-    if (pin && !isValidPin_(pin)) return {success:false,message:'Admin PIN must be exactly four digits.'};
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ADMIN_USERS_SHEET);
     if (!sheet) throw new Error('Admin Users sheet is missing. Run setup / repair first.');
 
@@ -377,7 +375,6 @@ function adminSaveUserPrivileges(payload) {
         return {success:false,message:'You cannot remove your own active Admin or Super Admin access.'};
       }
     } else {
-      if (!pin) return {success:false,message:'Set a four-digit admin PIN when creating a new access account.'};
       if (sheet.getLastRow() >= 2) {
         const rows=sheet.getRange(2,1,sheet.getLastRow()-1,Math.max(12,sheet.getLastColumn())).getValues();
         const matches=rows.filter(row=>String(row[8] || '').trim()===staffId);
@@ -406,14 +403,14 @@ function adminSaveUserPrivileges(payload) {
     nextValues[9]=email || String(staff.companyEmail || '');
     nextValues[10]=readPages.join(',');
     nextValues[11]=writePages.join(',');
-    if (pin) nextValues[1]=pin;
     sheet.getRange(rowNumber,1,1,12).setValues([nextValues]);
-    if (pin) sheet.getRange(rowNumber,2).setNumberFormat('@');
     const after=adminPrivilegeSummary_(nextValues);
     recordActivity_('Admin',user.name,'ADMIN-ROW-'+user.row,requestedRow?'UPDATE':'CREATE',
       'Admin User',staffId,'Portal access policy '+JSON.stringify({before:before,after:after}));
     invalidatePublicStaffOptionsCache_();
-    return {success:true,message:(requestedRow?'Access updated for ':'Access created for ')+staff.name+'.'};
+    const hasOwnPin = isValidPin_(normalizePin_(staff.pin)) && !isStartingPin_(staff.id, staff.pin);
+    return {success:true,message:(requestedRow?'Access updated for ':'Access created for ')+staff.name+'. They sign in with their own PIN, the same one used everywhere.'+
+      (hasOwnPin ? '' : ' They have not created it yet: ask them to open the attendance page and create their PIN first.')};
   } catch (err) {
     return {success:false,message:'User access could not be saved: '+(err.message || err)};
   } finally {
