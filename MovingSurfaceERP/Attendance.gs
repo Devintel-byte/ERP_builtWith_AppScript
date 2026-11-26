@@ -26,10 +26,24 @@
     const latitude = attendanceCoordinate_(payload.latitude);
     const longitude = attendanceCoordinate_(payload.longitude);
     const hasFix = latitude !== null && longitude !== null;
-    let locInfo = getMatchedLocation_(hasFix ? latitude : NaN, hasFix ? longitude : NaN, settings);
-    const locationRequired = action === 'Check In';
+    const accuracy = attendanceCoordinate_(payload.accuracy);
+    let locInfo = getMatchedLocation_(hasFix ? latitude : NaN, hasFix ? longitude : NaN, settings, accuracy);
+    // On an approved field duty a check-in is optional and is not tied to the office:
+    // the person may be in another city or country. The device check still applies,
+    // and being on duty never counts as being at the office for re-registering a device.
+    const fieldDuty = action === 'Check In' ? getApprovedFieldDutyOn_(staff.id, dateKey) : null;
+    const locationRequired = action === 'Check In' && !fieldDuty;
     if (locationRequired && String(staff.requireGps).toUpperCase() === 'YES' && String(settings.REQUIRE_GPS).toUpperCase() === 'YES' && !locInfo.allowed) {
-      return {success:false, message:'Attendance rejected. You are outside approved office locations.\n\nNearest: '+locInfo.name+'\nDistance: '+Math.round(locInfo.distance)+'m\nAllowed radius: '+locInfo.radius+'m'};
+      // Every refusal is kept, with the numbers behind it. "I was in the office and it
+      // said I was not" cannot be traced without them: the log shows whether the phone
+      // reported a weak fix, whether the office coordinates are wrong, or whether
+      // an office row could not be read at all.
+      recordActivity_('Staff',staff.name,staff.id,'ATTENDANCE REJECTED - LOCATION','Attendance',dateKey,
+        (hasFix ? 'nearest '+locInfo.name+' at '+Math.round(locInfo.distance)+'m; radius '+locInfo.radius+'m + tolerance '+Math.round(locInfo.tolerance)+'m' : 'no location received')+
+        '; phone accuracy '+(accuracy === null ? 'not reported' : '+/-'+Math.round(accuracy)+'m')+
+        (locInfo.invalidRows ? '; '+locInfo.invalidRows+' active office row(s) have unreadable coordinates' : '')+
+        '; '+classifyUserAgent_(payload.userAgent)+'.');
+      return {success:false, message:locationRejectionMessage_(hasFix,locInfo,accuracy)};
     }
 
     let deviceStatus = 'Device Verified';
@@ -101,7 +115,8 @@
       invalidatePublicStaffOptionsCache_();
     }
 
-    const attendanceStatus = getAttendanceStatus_(now, action, settings);
+    // Lateness is measured against Lagos office hours, which do not apply on field duty.
+    const attendanceStatus = fieldDuty ? 'On Field Duty' : getAttendanceStatus_(now, action, settings);
     const penalty = getPenaltySummary_(staff, attendanceStatus, action, now, settings);
 
     const checkoutType=attendanceCheckoutType_(action,'');
@@ -113,7 +128,7 @@
       !hasFix ? 'Location Not Provided' : locInfo.allowed ? 'Inside Approved Location' : 'Outside Approved Location',
       'QR/Web App', attendanceStatus, penalty.todayPenalty, penalty.monthLatePenalty,
       penalty.monthHalfDayDeduction, penalty.monthAbsenceDeduction, penalty.monthTotalDeduction,
-      deviceStatus, deviceTokenFingerprint_(staff.deviceToken), payload.userAgent || '', (pinWasCreated ? 'PIN created. ' : '') + (payload.accuracy ? 'GPS accuracy: '+Math.round(payload.accuracy)+'m' : ''),
+      deviceStatus, deviceTokenFingerprint_(staff.deviceToken), payload.userAgent || '', (pinWasCreated ? 'PIN created. ' : '') + (fieldDuty ? 'Field duty '+fieldDuty.dutyId+' ('+fieldDuty.site+'). ' : '') + (accuracy !== null ? 'GPS accuracy: '+Math.round(accuracy)+'m' : '') + (hasFix && locInfo.allowed && !locInfo.withinRadius ? ' Accepted inside tolerance, '+Math.round(locInfo.distance-locInfo.radius)+'m beyond the radius.' : ''),
       checkoutTime,checkoutType
     ]);
     recordActivity_('Staff',staff.name,staff.id,'ATTENDANCE '+action.toUpperCase(),'Attendance',dateKey,attendanceStatus+' at '+timeText+' from '+locInfo.name);
@@ -121,6 +136,11 @@
     const responseMessages=buildAttendanceResponseMessages_(
       action,staff.name,timeText,attendanceStatus,hasFix ? locInfo.name : 'Location not provided',deviceStatus,hasFix ? locInfo.distance : null,pinWasCreated,penalty
     );
+    if (fieldDuty) {
+      const dutyLine = 'Field duty: '+fieldDuty.site+' (until '+fieldDuty.endDate+'). Office hours and location do not apply.';
+      responseMessages.additionalMessage += '\n'+dutyLine;
+      responseMessages.message += '\n'+dutyLine;
+    }
     return {
       success:true,alert:['Late','Half Day','Absent'].includes(attendanceStatus),
       deviceToken:tokenToReturn,message:responseMessages.message,
@@ -134,6 +154,33 @@
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * What a person is told when check-in is refused for location. It states the
+ * numbers and, when the phone itself said its fix was weak, says that first,
+ * because that is the commonest reason someone standing in the office fails.
+ */
+function locationRejectionMessage_(hasFix,locInfo,accuracy) {
+  if (!hasFix) {
+    return 'Attendance rejected. Your phone did not share a location. Allow precise location for this site in your browser settings and try again.';
+  }
+  const lines = [
+    'Attendance rejected. You appear to be outside the approved office area.',
+    '',
+    'Nearest: '+locInfo.name,
+    'Distance: '+Math.round(locInfo.distance)+'m',
+    'Allowed: '+locInfo.radius+'m plus '+Math.round(locInfo.tolerance)+'m for GPS error'
+  ];
+  if (accuracy !== null && accuracy > 150) {
+    lines.push('','Your phone reported a weak location fix (+/-'+Math.round(accuracy)+'m). Turn on precise location and Wi-Fi, move near a window or step outside, wait a few seconds, then try again.');
+  } else if (locInfo.distance < locInfo.radius + locInfo.tolerance + 1000) {
+    lines.push('','If you are in the office, try again in a moment. If it keeps happening, tell Admin the distance shown above so the office location can be checked.');
+  } else {
+    lines.push('','If you are at the office and this distance is large, tell Admin: the office coordinates may be wrong.');
+  }
+  if (locInfo.invalidRows) lines.push('','Note: '+locInfo.invalidRows+' office location(s) in the settings sheet could not be read.');
+  return lines.join('\n');
 }
 
 /** A usable latitude/longitude, or null when the phone sent nothing (blank is not zero). */

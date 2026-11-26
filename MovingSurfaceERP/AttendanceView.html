@@ -206,7 +206,6 @@ function submitAttendance(action) {
   if (!pinSet && pin !== confirmPin) return showStatus('PIN and confirmation do not match.', 'bad');
   // Only check-in needs the location. A checkout goes ahead without one.
   const needsLocation = action === 'Check In';
-  if (needsLocation && !navigator.geolocation) return showStatus('GPS is not supported on this device.', 'bad');
   attendanceSubmitting = true;
   showStatus(needsLocation ? 'Requesting location for '+action.toLowerCase()+'…' : 'Recording '+action.toLowerCase()+'…', 'wait', processTitle);
   function send(position) {
@@ -228,12 +227,44 @@ function submitAttendance(action) {
       showAttendanceResult({success:false,message:'Attendance could not be submitted. '+(error.message || error)},action);
     }).recordAttendance(payload);
   }
-  if (!needsLocation && !navigator.geolocation) return send(null);
-  navigator.geolocation.getCurrentPosition(send, function() {
-    if (!needsLocation) return send(null);   // a checkout does not depend on the location
-    attendanceSubmitting = false;
-    showAttendanceResult({success:false,message:'Location access was denied or unavailable. Check browser permissions and try again.'},action);
-  }, {enableHighAccuracy: true, timeout: needsLocation ? 10000 : 4000, maximumAge: 10000});
+  // When no location can be read the request still goes to the server, which decides:
+  // a check-in needs an office location unless the person is on approved field duty
+  // (then it is optional), and a checkout never needs one. The page cannot know about
+  // the duty, so it must not refuse on the server's behalf.
+  locate(needsLocation, send, function() { send(null); });
+}
+
+/*
+ * Reads the location, keeping the most accurate of the readings that arrive.
+ *
+ * The first fix a phone returns indoors is often its worst: a coarse Wi-Fi or
+ * cell estimate, hundreds of metres out. Taking that single reading is what made
+ * people standing in the office look as though they were outside it. So this
+ * keeps listening for a few seconds, stops early once a reading is good enough,
+ * and otherwise submits the best one it saw, along with how uncertain it was.
+ */
+function locate(patient, onFix, onFail) {
+  const geo = navigator.geolocation;
+  if (!geo) return onFail();
+  const waitMs = patient ? 8000 : 4000;
+  if (!geo.watchPosition) {
+    return geo.getCurrentPosition(onFix, onFail, {enableHighAccuracy: true, timeout: waitMs + 2000, maximumAge: 10000});
+  }
+  const GOOD_ENOUGH_METRES = 40;
+  let best = null, finished = false, watchId = null, timer = null;
+  function finish() {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    if (watchId !== null && geo.clearWatch) geo.clearWatch(watchId);
+    if (best) onFix(best); else onFail();
+  }
+  timer = setTimeout(finish, waitMs);
+  watchId = geo.watchPosition(function(position) {
+    if (!best || position.coords.accuracy < best.coords.accuracy) best = position;
+    if (position.coords.accuracy <= GOOD_ENOUGH_METRES) finish();
+  }, finish, {enableHighAccuracy: true, timeout: waitMs, maximumAge: 0});
+  if (finished && geo.clearWatch) geo.clearWatch(watchId);   // a reading arrived before the watch id did
 }
 
 ['pin', 'confirmPin'].forEach(function(id) { document.getElementById(id).addEventListener('input', function() { digitsOnly(this); }); });

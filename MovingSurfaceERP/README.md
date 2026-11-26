@@ -38,7 +38,7 @@ Keep sheet reads and business rules in server-side files. UI files should call s
 2. Run `setupMovingSurfaceERPUpgrade` once and approve the requested Google permissions. It creates/repairs core and ERP sheets (including the Activity Log), runs the Projects / Leads schema migration, normalizes existing PIN cells to text, syncs the accountant view, and installs the one-minute email queue trigger plus the daily lead-reminder and project-reconcile triggers.
 3. Map each enabled admin account to a Staff ID in `Admin Users` (sample accounts are pre-linked) and review the role, page permissions, and notification email columns below. Admin Users holds no PIN: each person creates their own on the attendance page. See *One PIN for every page*.
 4. Review recipient addresses in `Requisition Settings`.
-5. Run `testRoutingAndPinRules`, `testAdminLogin`, `testERPPortalData`, `testRecoveryEmailMatchRules`, `testAttendanceTransitionRules`, `testRequisitionClientDto`, `testAdminAccessRules`, `testAdminCredentialResolution`, `testUserPermissionMatrixValidation`, `testRequisitionNotificationClassification`, `testProjectsAndLeadsPipeline`, `testInventoryModule`, `testClientDetailCapture`, `testDeviceMismatchPolicy`, `testUserAgentClassification`, `testSinglePinCredentials`, and `testStartingPinRules`.
+5. Run `testRoutingAndPinRules`, `testAdminLogin`, `testERPPortalData`, `testRecoveryEmailMatchRules`, `testAttendanceTransitionRules`, `testRequisitionClientDto`, `testAdminAccessRules`, `testAdminCredentialResolution`, `testUserPermissionMatrixValidation`, `testRequisitionNotificationClassification`, `testProjectsAndLeadsPipeline`, `testInventoryModule`, `testClientDetailCapture`, `testDeviceMismatchPolicy`, `testUserAgentClassification`, `testSinglePinCredentials`, `testStartingPinRules`, `testLocationToleranceRules`, `testFieldDutyExcusedDays`, `testFieldDutyDateAndSettingParsing`, and `testFieldDutyApprovalRules`.
 6. Deploy or update the web app and test each route using the exact query strings above.
 7. Add and verify the staff company email addresses used for account recovery. Recovery links are one-use, expire after 30 minutes, and reset the PIN; the person chooses whether the browser they are on also becomes their attendance device. Run setup again after schema changes to create the Staff Recovery Log and add the overtime settings.
 8. After upgrading the attendance schema, run `setupMovingSurfaceERPUpgrade` once. `Attendance Log` gains explicit `Checkout Time` and `Checkout Type` columns, and existing regular/overtime checkout rows are backfilled from their recorded event time and action.
@@ -310,7 +310,7 @@ lead rejected for a missing follow-up date leaves no half-made client behind.
 
 ## Device registration and iPhones
 
-**Only marking attendance** requires a registered device, and only **Check In** requires the office location. Check Out and Overtime Check Out work from anywhere, including with location denied or unavailable, because people forget to sign out before leaving; the position is still recorded when the phone supplies one, and the log says `Location Not Provided` when it does not. The staff portal, requisitions and the admin ERP sign in with the Staff ID and PIN alone, from any device and any place. The attendance lock is one registered browser per person: the browser holds a random token in its site storage and the sheet holds only the SHA-256 hash of it. It is what stops one person clocking in for a colleague.
+**Only marking attendance** requires a registered device, and only **Check In** requires the office location, unless the person is on approved field duty (see *Field duty*). Check Out and Overtime Check Out work from anywhere, including with location denied or unavailable, because people forget to sign out before leaving; the position is still recorded when the phone supplies one, and the log says `Location Not Provided` when it does not. The staff portal, requisitions and the admin ERP sign in with the Staff ID and PIN alone, from any device and any place. The attendance lock is one registered browser per person: the browser holds a random token in its site storage and the sheet holds only the SHA-256 hash of it. It is what stops one person clocking in for a colleague.
 
 ### Why iPhones keep losing it
 
@@ -400,6 +400,99 @@ Form fields show real placeholders rather than prefilled example values that had
 Deletions are routed through `window.confirmAppAction`, which opens a modal naming what will be removed and what will be kept. The server independently requires confirmation for a delete that would discard history, so the guard does not depend on the browser.
 
 Edit screens use `window.openFormModal`, a reusable modal that takes form markup, returns the values the caller asks for, and can refuse a save with an inline message.
+
+## Check-in location
+
+Check In must happen at an approved office (`Office Locations` sheet); Check Out and Overtime Check Out do not need a location at all.
+
+The test is deliberately not a hard line. A phone indoors often reports a position hundreds of metres out, and says how uncertain it is. A check-in passes when:
+
+```
+distance to the nearest office  <=  office radius  +  LOCATION_TOLERANCE_METRES  +  phone-reported accuracy (capped)
+```
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `LOCATION_TOLERANCE_METRES` | `150` | Flat extra distance for ordinary GPS drift. `0` makes the radius exact. |
+| `LOCATION_MAX_ACCURACY_ALLOWANCE_METRES` | `500` | Cap on how much of the phone's own uncertainty is allowed, so a deliberately vague reading cannot stretch an office across the city. |
+
+The page also stops taking the first reading a phone returns, which indoors is usually its worst. It listens for up to eight seconds, submits as soon as a reading is accurate to 40 m, and otherwise submits the best one it saw.
+
+### Tracing a failure
+
+Every refused check-in is written to the Activity Log as `ATTENDANCE REJECTED - LOCATION`, with the nearest office, the distance, the radius and tolerance, the accuracy the phone reported, and the kind of browser. The person is shown the same numbers. Read them like this:
+
+- **Distance a few hundred metres, accuracy large:** a weak fix. Precise location and Wi-Fi on, near a window, try again. The tolerance settings are the lever if it is common.
+- **Distance similar for everyone, always wrong by the same amount:** the office coordinates are wrong. Fix the `Office Locations` row.
+- **"N active office row(s) have unreadable coordinates":** an office row holds text, an out-of-range value or swapped latitude and longitude. Such a row used to be skipped silently, so that office never matched anyone. A decimal comma (`9,0765`) is now read correctly.
+- **"Your phone did not share a location":** permission is off for the site, usually after an iPhone privacy prompt was dismissed.
+
+Accepted-on-tolerance check-ins are noted in the attendance log's Remarks, so you can see how often the leniency is being used.
+
+## Field duty
+
+Staff sometimes travel for installation or event jobs, within the country or abroad, for days or weeks, and do not mark attendance while away. Without a record of that, payroll counts every working day they were away as an absence. **Field duty** is that record.
+
+An **approved** field duty does three things:
+
+1. **Its working days are excused in payroll.** They count as worked, never as absent, and are paid in full.
+2. **The person shows as "on field duty"**, with the site and the date they are due back, instead of appearing in "Not signed in".
+3. **Checking in is optional and is not tied to the office.** If they do check in, no office location is needed, and the check-in is recorded as `On Field Duty`: never Late, Half Day or Absent, because those rules are Lagos office hours. The registered device is still required, and being on duty never counts as being at the office for `REBIND_AT_OFFICE`. Checking out has never needed a location.
+
+A **pending, rejected or cancelled** duty excuses nothing.
+
+### Recording and approving
+
+The **Field Duty** page records who, the first and last day (both included), the site or city, the reason, and optionally the project.
+
+| Who | May |
+| --- | --- |
+| Admin, Super Admin | Approve any field duty. They always have the page, even if their access list predates it. |
+| The project's manager | Approve a duty that names their project. |
+| Anyone else with the page | Record a duty, which waits as *Pending Approval*. |
+
+- Someone who is allowed to approve a duty approves it as they record it.
+- **Nobody approves their own duty**, except a Super Admin, so a workbook with a single Super Admin cannot get stuck.
+- **A project manager needs an access account with the Field Duty page.** Grant it on the Users page. Their approval rights come from being the project's manager, not from the page.
+- **The manager link is a name match.** Projects store the manager as text, so the person's staff name must equal it (case, spacing and punctuation are ignored). If it matches nobody, or two people, nobody gets approval through it and an Admin must approve. A typo fails safe.
+- Rejecting needs a reason. A decided duty is final.
+- Duties for the same person may not overlap, and one duty covers at most 366 days.
+- **Backdating is allowed**, for a trip nobody filed. It needs a reason like any other, is flagged `BACKDATED` in the Activity Log, and excuses the days already gone once approved.
+- A **started** duty cannot be cancelled, only shortened or extended by an approver with *Change end*. Cancelling would un-excuse days already worked and possibly already paid. Before it starts, the requester or an approver can cancel it.
+
+### How payroll counts a month
+
+For each working day in the month (the weekdays in the `WORKDAYS` setting), exactly one of these applies, in this order:
+
+1. **The person checked in**: present. Nothing is excused, so a check-in on a duty day is never counted twice.
+2. **Approved field duty**: a field duty day.
+3. **Approved paid leave**: a leave day.
+4. **A public holiday**: a holiday day.
+
+```
+expected days = the smaller of (required days, working days in this month)
+absent days   = expected days - present - field duty days - leave days - holiday days   (never below zero)
+```
+
+**Why the cap.** A staff member's required days are a fixed figure (22 by default), but a month often has fewer working days: November 2026 has 21. Excused days can never exceed the month's real working days, so without the cap a person on field duty for the **whole** month would still be one day short and lose a day's pay, and so would someone who attended every working day. With it, a full month on field duty is full pay, and so is full attendance. The daily rate stays on the required days, so salaries do not move. This also removes the one-or-two-day phantom absence full-attendance staff were already getting in short months, which is a deduction change in staff's favour for everyone, not only people on duty. If the month's working days cannot be determined the required days are used, as before.
+
+`WORKDAYS` is a single global setting, so a staff member whose Work Days Per Month assumes a six-day week is capped at the global week's working days. Set `WORKDAYS` to match, or leave such staff for a per-person setting.
+
+Weekends are never counted. Leave is counted in **working days**, not the calendar days on the leave request, so a leave that spans a weekend does not excuse the weekend. Ranges are clipped to the month.
+
+**Leave and holidays are part of this change, and they change deductions.** Before it, payroll fixed leave at zero, so approved leave was deducted as absence, and holidays were never excused. Now:
+
+- **Approved leave is excused**, except leave of type **Unpaid**, which stays a deduction. Pending and rejected leave excuses nothing.
+- **A holiday on a working day is excused.** A row in `Holidays` counts unless its `Active` cell says `NO`, so a holiday with a blank flag is not turned into a deduction.
+- Anyone with approved leave this month will see their deduction fall as soon as this is deployed.
+
+The Accountant View gains two columns at the end, **Field Duty Days** and **Holiday Days**. `Leave Days` now shows real values.
+
+Note that the monthly figure follows the existing design: required days are the whole month, so a duty later in the month is excused in advance, in step with the required days it offsets.
+
+### Setup
+
+Run **Setup / Repair ERP Upgrade** once. It creates the `Field Duty` sheet and adds the two Accountant View columns. Nothing else needs migrating.
 
 ## One PIN for every page
 

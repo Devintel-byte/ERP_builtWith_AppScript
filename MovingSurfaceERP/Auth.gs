@@ -81,7 +81,7 @@ function getAdminAccess_(user) {
   const privileged = ['superadmin','admin','hr','adminhr','administrator','humanresources'].includes(role);
   const technical = role === 'technical';
   const accountant = role === 'accountant';
-  const allPages = ['dashboard','attendance','staff','requisitions','inventory','assets','expenses','leave','projects','leads','reports','activity'];
+  const allPages = ['dashboard','attendance','staff','requisitions','inventory','assets','expenses','leave','projects','leads','fieldduty','reports','activity'];
   const defaultRead = privileged ? allPages : allPages.filter(page => page !== 'staff');
   const defaultWrite = privileged
     ? allPages.slice()
@@ -90,9 +90,13 @@ function getAdminAccess_(user) {
   const readPages = parseAdminPageList_(user.accessPages,defaultRead)
     .filter(page => allPages.includes(page));
   if (canManageUsers && !readPages.includes('dashboard')) readPages.unshift('dashboard');
+  // Admin and Super Admin can approve field duty, so they always reach its page even
+  // when an explicit Access Pages list (which replaces the role defaults) predates it.
+  if (canManageUsers && !readPages.includes('fieldduty')) readPages.push('fieldduty');
   const writePages = parseAdminPageList_(user.writePages,defaultWrite)
     .filter(page => allPages.includes(page));
   const allowedWrite = writePages.filter(page => readPages.includes(page));
+  if (canManageUsers && !allowedWrite.includes('fieldduty')) allowedWrite.push('fieldduty');
   return {
     readPages:readPages.concat(canManageUsers ? ['users'] : []),
     writePages:allowedWrite,

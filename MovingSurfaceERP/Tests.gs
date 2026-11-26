@@ -885,3 +885,169 @@ function testStartingPinRules() {
   if (!isStartingPin_('MS-003', Number(zero))) throw new Error('A numeric cell must still be recognised: ' + zero);
   Logger.log('testStartingPinRules passed.');
 }
+
+
+/** The pure rules behind the check-in location test. */
+function testLocationToleranceRules() {
+  const settings = {LOCATION_TOLERANCE_METRES: 150, LOCATION_MAX_ACCURACY_ALLOWANCE_METRES: 500};
+  if (locationTolerance_(settings, undefined) !== 150) throw new Error('With no accuracy reported only the flat buffer applies.');
+  if (locationTolerance_(settings, 80) !== 230) throw new Error('Reported accuracy is added to the buffer.');
+  if (locationTolerance_(settings, 5000) !== 650) throw new Error('The accuracy allowance must be capped.');
+  if (locationTolerance_(settings, -20) !== 150 || locationTolerance_(settings, NaN) !== 150 || locationTolerance_(settings, 0) !== 150) {
+    throw new Error('Nonsense or zero accuracy must add nothing.');
+  }
+  if (locationTolerance_({LOCATION_TOLERANCE_METRES: 0, LOCATION_MAX_ACCURACY_ALLOWANCE_METRES: 0}, 300) !== 0) {
+    throw new Error('Zeroed settings must make the radius exact.');
+  }
+  if (locationTolerance_({}, 100) !== 0) throw new Error('Missing settings must not invent a tolerance or throw.');
+
+  if (parseLocationCoordinate_(9.0765, 90) !== 9.0765) throw new Error('A number passes through.');
+  if (parseLocationCoordinate_('9.0765', 90) !== 9.0765) throw new Error('Numeric text passes.');
+  if (parseLocationCoordinate_(' 9,0765 ', 90) !== 9.0765) throw new Error('A decimal comma must be read, not dropped.');
+  if (parseLocationCoordinate_('1,234.5', 90) === 1234.5) throw new Error('A thousands separator is not a decimal comma.');
+  ['', null, undefined, 'n/a', '9.07.65', 123.4, -91, 'abc'].forEach(function (bad) {
+    if (!isNaN(parseLocationCoordinate_(bad, 90))) throw new Error('Must be unreadable: ' + bad);
+  });
+  if (parseLocationCoordinate_(-122.4, 180) !== -122.4 || !isNaN(parseLocationCoordinate_(181, 180))) throw new Error('Longitude range is 180.');
+  Logger.log('testLocationToleranceRules passed.');
+}
+
+
+/**
+ * Which working days are excused. Fixed calendar months are used so the
+ * expectations are exact: November 2026 starts on a Sunday and has 21 weekdays.
+ */
+function testFieldDutyExcusedDays() {
+  const weekdays = [1,2,3,4,5];
+  const november = fieldDutyMonthWorkdayKeys_('2026-11', weekdays);
+  if (november.length !== 21 || november[0] !== '2026-11-02' || november[20] !== '2026-11-30') {
+    throw new Error('November 2026 has 21 weekdays from the 2nd to the 30th, got ' + november.length + ' ' + november[0] + '..' + november[november.length - 1]);
+  }
+  if (fieldDutyMonthWorkdayKeys_('2026-02', weekdays).length !== 20) throw new Error('February 2026 has 20 weekdays.');
+  if (fieldDutyMonthWorkdayKeys_('2026-11', [1,2,3,4,5,6]).length !== 25) throw new Error('A six-day week must count Saturdays.');
+  if (fieldDutyMonthWorkdayKeys_('nonsense', weekdays).length !== 0) throw new Error('A bad month yields nothing.');
+
+  const base = {month: '2026-11', workdays: weekdays, holidays: [], duties: [], leaves: [], checkIns: {}, staffIds: ['A']};
+  const run = function (over) { return computeExcusedDays_(Object.assign({}, base, over)).A; };
+
+  // A duty crossing a weekend counts only the weekdays: Fri 6th to Tue 10th = Fri, Mon, Tue.
+  if (run({duties: [{staffId: 'A', start: '2026-11-06', end: '2026-11-10'}]}).fieldDutyDays !== 3) {
+    throw new Error('A range across a weekend must exclude Saturday and Sunday.');
+  }
+  // A duty that starts before and ends after the month is clipped to it: every weekday.
+  if (run({duties: [{staffId: 'A', start: '2026-10-20', end: '2026-12-15'}]}).fieldDutyDays !== 21) {
+    throw new Error('A duty spanning the whole month excuses every working day of it.');
+  }
+  // A duty wholly outside the month excuses nothing.
+  if (run({duties: [{staffId: 'A', start: '2026-12-01', end: '2026-12-31'}]}).fieldDutyDays !== 0) throw new Error('Another month is not this month.');
+  // Someone else's duty is not mine.
+  if (run({duties: [{staffId: 'B', start: '2026-11-02', end: '2026-11-30'}]}).fieldDutyDays !== 0) throw new Error('A duty belongs to its own staff member.');
+
+  // A day with a check-in is present, not excused, and is never counted twice.
+  const withCheckIn = run({duties: [{staffId: 'A', start: '2026-11-02', end: '2026-11-04'}], checkIns: {A: {'2026-11-03': true}}});
+  if (withCheckIn.fieldDutyDays !== 2) throw new Error('A day already worked is present, not also a duty day.');
+
+  // Leave is counted in working days: Fri 13th to Mon 16th is two, not four.
+  if (run({leaves: [{staffId: 'A', start: '2026-11-13', end: '2026-11-16'}]}).leaveDays !== 2) {
+    throw new Error('Leave must count working days, not the calendar days on the request.');
+  }
+  // Duty outranks leave and holiday on the same day.
+  const stacked = run({
+    duties: [{staffId: 'A', start: '2026-11-02', end: '2026-11-02'}],
+    leaves: [{staffId: 'A', start: '2026-11-02', end: '2026-11-03'}],
+    holidays: ['2026-11-02', '2026-11-03', '2026-11-04']
+  });
+  if (stacked.fieldDutyDays !== 1 || stacked.leaveDays !== 1 || stacked.holidayDays !== 1) {
+    throw new Error('Each day is classified once, by precedence: ' + JSON.stringify(stacked));
+  }
+  // A holiday on a weekend is not a working day.
+  if (run({holidays: ['2026-11-07', '2026-11-08']}).holidayDays !== 0) throw new Error('A weekend holiday excuses nothing.');
+  if (run({holidays: ['2026-12-25']}).holidayDays !== 0) throw new Error('A holiday in another month is not counted.');
+
+  // Everyone supplied gets an entry, including people with nothing at all.
+  const all = computeExcusedDays_(Object.assign({}, base, {staffIds: ['A', 'B', 'C'], duties: [{staffId: 'B', start: '2026-11-02', end: '2026-11-03'}]}));
+  if (!all.A || !all.C || all.B.fieldDutyDays !== 2 || all.A.fieldDutyDays !== 0) throw new Error('Every staff id must get an entry.');
+  Logger.log('testFieldDutyExcusedDays passed.');
+}
+
+function testFieldDutyDateAndSettingParsing() {
+  const wd = parseWorkdaySetting_('MON,TUE,WED,THU,FRI');
+  if (wd.join(',') !== '1,2,3,4,5') throw new Error('Weekdays parse.');
+  if (parseWorkdaySetting_(' mon , Sat ').join(',') !== '1,6') throw new Error('Case and spacing are tolerated.');
+  if (parseWorkdaySetting_('').join(',') !== '1,2,3,4,5' || parseWorkdaySetting_('xyz').join(',') !== '1,2,3,4,5') {
+    throw new Error('An unusable setting falls back to Monday to Friday rather than excusing nothing.');
+  }
+  if (fieldDutyDateKey_('2026-11-05', 'Africa/Lagos') !== '2026-11-05') throw new Error('A key passes through.');
+  if (fieldDutyDateKey_('', 'Africa/Lagos') !== '' || fieldDutyDateKey_('soon', 'Africa/Lagos') !== '') throw new Error('Junk is not a date.');
+  if (fieldDutyDateKey_(new Date(NaN), 'Africa/Lagos') !== '') throw new Error('An invalid Date is not a date.');
+  if (!fieldDutyRangesOverlap_('2026-11-01', '2026-11-05', '2026-11-05', '2026-11-09')) throw new Error('Touching on one day overlaps.');
+  if (fieldDutyRangesOverlap_('2026-11-01', '2026-11-04', '2026-11-05', '2026-11-09')) throw new Error('Adjacent ranges do not overlap.');
+  Logger.log('testFieldDutyDateAndSettingParsing passed.');
+}
+
+/** Who may approve a field duty. */
+function testFieldDutyApprovalRules() {
+  const admin = {staffId: 'ADM', isAdmin: true, isSuperAdmin: false};
+  const superAdmin = {staffId: 'SUP', isAdmin: true, isSuperAdmin: true};
+  const manager = {staffId: 'PM1', isAdmin: false, isSuperAdmin: false};
+  const other = {staffId: 'OTH', isAdmin: false, isSuperAdmin: false};
+  const withProject = {staffId: 'TECH', projectId: 'PRJ-0001'};
+  const noProject = {staffId: 'TECH', projectId: ''};
+  const ctx = {managerStaffIds: ['PM1']};
+
+  if (!fieldDutyApprovalDecision_(admin, withProject, ctx).allowed) throw new Error('An Admin approves any duty.');
+  if (!fieldDutyApprovalDecision_(superAdmin, noProject, {managerStaffIds: []}).allowed) throw new Error('A Super Admin approves any duty.');
+  if (!fieldDutyApprovalDecision_(manager, withProject, ctx).allowed) throw new Error("The project's manager approves duty on that project.");
+  if (fieldDutyApprovalDecision_(manager, noProject, ctx).allowed) throw new Error('A manager cannot approve a duty with no project.');
+  if (fieldDutyApprovalDecision_(manager, {staffId: 'TECH', projectId: 'PRJ-0002'}, {managerStaffIds: ['SOMEONE']}).allowed) {
+    throw new Error("A manager of a different project cannot approve this one.");
+  }
+  if (fieldDutyApprovalDecision_(other, withProject, ctx).allowed) throw new Error('Anyone else cannot approve.');
+
+  // The link is a name match, so it must fail safe when ambiguous or missing.
+  if (fieldDutyApprovalDecision_(manager, withProject, {managerStaffIds: ['PM1', 'PM2']}).allowed) throw new Error('A name matching two people approves for neither.');
+  if (fieldDutyApprovalDecision_(manager, withProject, {managerStaffIds: []}).allowed) throw new Error('A manager name matching nobody approves for nobody.');
+  if (fieldDutyApprovalDecision_(admin, withProject, {managerStaffIds: ['PM1', 'PM2']}).allowed !== true) throw new Error('An Admin is unaffected by manager ambiguity.');
+
+  // Nobody approves their own duty, except a Super Admin so a lone one cannot deadlock.
+  if (fieldDutyApprovalDecision_(admin, {staffId: 'ADM', projectId: ''}, ctx).allowed) throw new Error('An Admin cannot approve their own duty.');
+  if (fieldDutyApprovalDecision_(manager, {staffId: 'PM1', projectId: 'PRJ-0001'}, ctx).allowed) throw new Error('A manager cannot approve their own duty.');
+  if (!fieldDutyApprovalDecision_(superAdmin, {staffId: 'SUP', projectId: ''}, ctx).allowed) throw new Error('A Super Admin can approve their own duty.');
+  if (!/own field duty/.test(fieldDutyApprovalDecision_(admin, {staffId: 'ADM'}, ctx).reason)) throw new Error('The refusal must say why.');
+
+  // Names are compared loosely so punctuation and case do not break the link.
+  if (normalizePersonName_('  Kome   VRENO. ') !== normalizePersonName_('kome vreno')) throw new Error('Names normalise.');
+  if (normalizePersonName_('') !== '' || normalizePersonName_(null) !== '') throw new Error('Blank names stay blank, so they can never match.');
+  Logger.log('testFieldDutyApprovalRules passed.');
+}
+
+
+/** Required days are a fixed figure, but a month may have fewer working days than that. */
+function testPayrollMonthWorkdayCap() {
+  const staff = {workDaysPerMonth:22,monthlySalary:220000,latePenalty:1000};
+  const settings = {HALF_DAY_PERCENT:50,DEFAULT_LATE_PENALTY:1000,OVERTIME_PAY_RATE:0};
+
+  // A month with 21 working days: attending every one of them is not an absence.
+  const perfect = calculateStaffPayrollSummary_(staff,{presentDays:21,monthWorkdays:21},settings);
+  if (perfect.absentDays !== 0 || perfect.absenceDeduction !== 0 || perfect.netPay !== 220000) {
+    throw new Error('Full attendance in a 21-day month must cost nothing: ' + JSON.stringify(perfect));
+  }
+  // One genuinely missed day in that month is still exactly one absence, at the unchanged daily rate.
+  const missed = calculateStaffPayrollSummary_(staff,{presentDays:20,monthWorkdays:21},settings);
+  if (missed.absentDays !== 1 || missed.absenceDeduction !== 10000) throw new Error('One missed day is one absence: ' + JSON.stringify(missed));
+  // A full month of field duty is full pay.
+  const duty = calculateStaffPayrollSummary_(staff,{presentDays:0,fieldDutyDays:21,monthWorkdays:21},settings);
+  if (duty.absentDays !== 0 || duty.netPay !== 220000) throw new Error('A month of field duty is full pay: ' + JSON.stringify(duty));
+  // Mixed excused days add up the same way.
+  const mixed = calculateStaffPayrollSummary_(staff,{presentDays:10,fieldDutyDays:6,leaveDays:3,holidayDays:2,monthWorkdays:21},settings);
+  if (mixed.absentDays !== 0) throw new Error('Present plus excused days covering the month leave no absence.');
+  // A month with more working days than the required figure is not stretched past it.
+  const long = calculateStaffPayrollSummary_(staff,{presentDays:21,monthWorkdays:23},settings);
+  if (long.absentDays !== 1) throw new Error('The cap never raises the expectation above the required days: ' + JSON.stringify(long));
+  // Unknown month length behaves exactly as before.
+  const legacy = calculateStaffPayrollSummary_(staff,{presentDays:20},settings);
+  if (legacy.absentDays !== 2) throw new Error('Without a month length the required days apply: ' + JSON.stringify(legacy));
+  // Rates do not move.
+  if (perfect.dailyRate !== 10000) throw new Error('The daily rate stays on the required days.');
+  Logger.log('testPayrollMonthWorkdayCap passed.');
+}

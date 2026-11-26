@@ -79,6 +79,7 @@ function setupERPModuleSheets_() {
   ensureERPHeaders_(PROJECT_COSTS_SHEET, projectCostHeaders_());
   ensureERPHeaders_(CLIENTS_SHEET, clientsHeaders_());
   ensureERPHeaders_(LEADS_SHEET, leadsHeaders_());
+  ensureERPHeaders_(FIELD_DUTY_SHEET, fieldDutyHeaders_());
   ensureERPHeaders_(LEAD_ACTIVITY_SHEET, leadActivityHeaders_());
   ensureERPHeaders_(LEAD_REMINDER_LOG_SHEET, leadReminderLogHeaders_());
   ensureERPHeaders_('Vendors', ['Vendor ID','Vendor Name','Category','Contact Person','Email','Phone','Location','Bank Details','Status','Notes','Last Updated']);
@@ -181,6 +182,11 @@ function applyERPValidations_() {
   setERPValidation_(ss.getSheetByName('Expense Claims'), 'J2:J1000', ['Pending Approval','Approved - Awaiting Accounts','Rejected','Paid / Closed']);
   setERPValidation_(ss.getSheetByName('Expense Claims'), 'M2:M1000', ['Not Submitted','Awaiting Accounts','Paid','Rejected']);
   setERPValidation_(ss.getSheetByName('Leave Requests'), 'K2:K1000', ['Pending Approval','Approved','Rejected','Cancelled']);
+  if (ss.getSheetByName(FIELD_DUTY_SHEET)) {
+    setERPValidation_(ss.getSheetByName(FIELD_DUTY_SHEET), 'J2:J1000', fieldDutyStatuses_());
+    // Kept as text so the sheet never reinterprets a duty date as a locale date.
+    ss.getSheetByName(FIELD_DUTY_SHEET).getRange('D2:E1000').setNumberFormat('@');
+  }
   // Projects.Status moved from column G to column I in the new layout.
   setERPValidation_(ss.getSheetByName(PROJECTS_SHEET), 'I2:I1000', projectStatuses_());
   setERPValidation_(ss.getSheetByName(LEADS_SHEET), 'I2:I1000', leadStages_());

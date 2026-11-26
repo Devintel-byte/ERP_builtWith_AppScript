@@ -11,13 +11,14 @@ function syncAccountantViewRows() {
       s.monthlySalary, payroll.requiredDays, payroll.presentDays, payroll.leaveDays, payroll.absentDays,
       payroll.lateCount, payroll.halfDayCount, payroll.dailyRate, payroll.latePenaltyTotal,
       payroll.halfDayDeduction, payroll.absenceDeduction, payroll.totalDeduction,
-      payroll.overtimeDays, payroll.overtimePay, payroll.netPay
+      payroll.overtimeDays, payroll.overtimePay, payroll.netPay,
+      payroll.fieldDutyDays, payroll.holidayDays
     ];
   });
   const oldLastRow = sh.getLastRow();
-  if (rows.length) sh.getRange(2,1,rows.length,22).setValues(rows);
+  if (rows.length) sh.getRange(2,1,rows.length,24).setValues(rows);
   if (oldLastRow > rows.length + 1) {
-    sh.getRange(rows.length + 2,1,oldLastRow - rows.length - 1,22).clearContent();
+    sh.getRange(rows.length + 2,1,oldLastRow - rows.length - 1,24).clearContent();
   }
 }
 
@@ -30,6 +31,7 @@ function getPayrollRows_(staffList) {
     return {
       month:month,staffId:staff.id,name:staff.name,salary:staff.monthlySalary,
       required:payroll.requiredDays,present:payroll.presentDays,absent:payroll.absentDays,
+      fieldDuty:payroll.fieldDutyDays,leave:payroll.leaveDays,holiday:payroll.holidayDays,
       late:payroll.lateCount,halfDay:payroll.halfDayCount,overtimeDays:payroll.overtimeDays,overtimePay:payroll.overtimePay,
       deduction:payroll.totalDeduction,net:payroll.netPay
     };
@@ -42,6 +44,7 @@ function getLiveTodayAttendance_(staffList) {
   const todayKey = Utilities.formatDate(now, settings.TIMEZONE, 'yyyy-MM-dd');
   const currentTime = Utilities.formatDate(now, settings.TIMEZONE, 'hh:mm:ss a');
   staffList = staffList || getActiveStaff_();
+  const onDuty = getApprovedFieldDutyMapOn_(todayKey);
   const map = {};
   staffList.forEach(s => {
     map[s.id] = {staffId:s.id, name:s.name, department:s.department, workLocation:s.location, checkIn:'', checkOut:'', overtimeCheckout:false, rawCheckIn:0, rawCheckOut:0, status:'Not Signed In', matchedLocation:'', gpsStatus:''};
@@ -87,11 +90,16 @@ function getLiveTodayAttendance_(staffList) {
   const all = Object.values(map);
   const signedIn = all.filter(r => r.checkIn && !r.checkOut).sort((a,b)=>a.rawCheckIn-b.rawCheckIn);
   const checkedOut = all.filter(r => r.checkIn && r.checkOut).sort((a,b)=>a.rawCheckOut-b.rawCheckOut);
-  const notSignedIn = all.filter(r => !r.checkIn).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  const notSignedIn = all.filter(r => !r.checkIn && !onDuty[r.staffId]).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  // Approved field duty today: away on a job, excused, and not to be chased as absent.
+  const onFieldDuty = all.filter(r => !r.checkIn && onDuty[r.staffId])
+    .map(r => ({staffId:r.staffId,name:r.name,department:r.department,site:onDuty[r.staffId].site,
+      until:onDuty[r.staffId].endDate,dutyId:onDuty[r.staffId].dutyId}))
+    .sort((a,b)=>String(a.name).localeCompare(String(b.name)));
 
   return {
     date:todayKey, currentTime:currentTime, totalStaff:all.length,
-    signedInCount:signedIn.length, checkedOutCount:checkedOut.length, overtimeCheckoutCount:all.filter(r=>r.overtimeCheckout).length, notSignedInCount:notSignedIn.length,
+    signedInCount:signedIn.length, checkedOutCount:checkedOut.length, overtimeCheckoutCount:all.filter(r=>r.overtimeCheckout).length, notSignedInCount:notSignedIn.length, onFieldDutyCount:onFieldDuty.length, onFieldDuty:onFieldDuty,
     lateCount:all.filter(r=>r.status==='Late').length, halfDayCount:all.filter(r=>r.status==='Half Day').length,
     signedIn:signedIn, checkedOut:checkedOut, notSignedIn:notSignedIn
   };

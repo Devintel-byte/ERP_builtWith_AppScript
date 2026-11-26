@@ -136,6 +136,7 @@ function getSpreadsheetSheetLinks_(user) {
     inventory:[INVENTORY_ITEMS_SHEET],
     projects:[PROJECTS_SHEET,PROJECT_COSTS_SHEET],
     leads:[LEADS_SHEET,CLIENTS_SHEET,LEAD_ACTIVITY_SHEET],
+    fieldduty:[FIELD_DUTY_SHEET],
     staff:[STAFF_SHEET]
   };
   Object.keys(pageSheets).forEach(function(page) {

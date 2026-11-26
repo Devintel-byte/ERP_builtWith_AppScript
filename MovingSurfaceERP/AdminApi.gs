@@ -220,6 +220,7 @@ function adminGetPortalData(payload) {
     const inventoryOptions = inventory.map(i => `<option value="${escapeHtml_(i.itemId)}">${escapeHtml_(i.itemName)} - ${escapeHtml_(i.itemId)}</option>`).join('');
 
     const canRead = page => adminCanReadPage_(user,page);
+    const fieldDuty = canRead('fieldduty') ? fieldDutyRecordsForUser_(user) : [];
     const summary = {
       activeStaff:canRead('staff')?staffRaw.length:null,
       signedIn:canRead('attendance')?liveAttendance.signedInCount:null,
@@ -237,7 +238,9 @@ function adminGetPortalData(payload) {
       weightedPipeline:canRead('leads')?Math.round(leads.filter(r => r.isOpen).reduce((sum,r) => sum+r.weightedValue,0)):null,
       projectBalance:canRead('projects')?projects.reduce((sum,r) => sum+r.balance,0):null,
       projectReceivable:canRead('projects')?projects.reduce((sum,r) => sum+r.receivable,0):null,
-      projectsOverBudget:canRead('projects')?projects.filter(r => r.overBudget).length:null
+      projectsOverBudget:canRead('projects')?projects.filter(r => r.overBudget).length:null,
+      fieldDutyPending:canRead('fieldduty')?fieldDuty.filter(r => r.status === 'Pending Approval').length:null,
+      onFieldDuty:canRead('fieldduty')?fieldDuty.filter(r => r.isApproved && r.phase === 'Active').length:null
     };
 
     const clientUser = {name:user.name,role:user.role,canView:user.canView,canOverride:user.canOverride,
@@ -250,7 +253,7 @@ function adminGetPortalData(payload) {
       canApproveLeave:canApproveLeave,
       canDisburseReq:canDisburseReq,
       canDisburseExpense:canDisburseExpense,
-      staffOptions:canRead('staff') || ['assets','expenses','leave'].some(page => adminCanWritePage_(user,page)) ? staffOptions : '',
+      staffOptions:canRead('staff') || ['assets','expenses','leave','fieldduty'].some(page => adminCanWritePage_(user,page)) ? staffOptions : '',
       inventoryOptions:canRead('inventory') ? inventoryOptions : '',
       staff:staff,
       webAppUrl:getWebAppRouteUrl_('attendance') || '',
@@ -278,6 +281,8 @@ function adminGetPortalData(payload) {
         stages:leadStages_(),sources:leadSources_(),cadences:leadReminderCadences_(),
         activityTypes:leadActivityTypes_(),relationshipStatuses:clientRelationshipStatuses_()
       } : null,
+      fieldDuty:fieldDuty,
+      fieldDutyProjects:canRead('fieldduty') ? fieldDutyProjectOptions_(projects) : [],
       summary:summary
     };
   } catch (err) {
@@ -430,6 +435,7 @@ function getAdminManagedPages_() {
     {id:'leave',label:'Leave'},
     {id:'projects',label:'Projects'},
     {id:'leads',label:'Leads'},
+    {id:'fieldduty',label:'Field duty'},
     {id:'reports',label:'Reports'},
     {id:'activity',label:'Activity log'}
   ];

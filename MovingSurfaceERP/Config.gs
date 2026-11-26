@@ -21,6 +21,7 @@ const LOG_SHEET = 'Attendance Log';
 const OVERRIDES_SHEET = 'Admin Overrides';
 const LOCATIONS_SHEET = 'Office Locations';
 const HOLIDAYS_SHEET = 'Holidays';
+const FIELD_DUTY_SHEET = 'Field Duty';
 const ADMIN_USERS_SHEET = 'Admin Users';
 const ADMIN_RESET_LOG_SHEET = 'Admin Reset Log';
 const STAFF_RECOVERY_SHEET = 'Staff Recovery Log';
@@ -72,7 +73,8 @@ const SHEET_HEADERS = {
   [ACCOUNTANT_VIEW_SHEET]: [
     'Month','Staff ID','Staff Name','Department','Designation','Employment Type','Status','Monthly Salary',
     'Required Days','Present Days','Leave Days','Absent Days','Late Count','Half-Day Count','Daily Rate',
-    'Late Penalty Total','Half-Day Deduction','Absence Deduction','Total Deduction','Overtime Days','Overtime Pay','Net Pay'
+    'Late Penalty Total','Half-Day Deduction','Absence Deduction','Total Deduction','Overtime Days','Overtime Pay','Net Pay',
+    'Field Duty Days','Holiday Days'
   ],
   [REQ_SETTINGS_SHEET]: ['Setting','Value','Notes'],
   [REQ_SHEET]: [

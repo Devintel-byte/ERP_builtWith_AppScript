@@ -19,6 +19,17 @@ function clientsHeaders_() {
   ];
 }
 
+function fieldDutyHeaders_() {
+  return [
+    'Duty ID','Staff ID','Staff Name','Start Date','End Date','Site / Location','Project ID','Project','Reason',
+    'Status','Requested By','Decided By','Decided At','Decision Note','Created At','Last Updated'
+  ];
+}
+
+function fieldDutyStatuses_() {
+  return ['Pending Approval','Approved','Rejected','Cancelled'];
+}
+
 function leadsHeaders_() {
   return [
     'Lead ID','Client ID','Client / Company','Opportunity','Contact Person','Email','Phone','Source','Stage',

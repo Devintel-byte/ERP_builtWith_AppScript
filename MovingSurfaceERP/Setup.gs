@@ -66,6 +66,8 @@ function seedDefaults_() {
     ['ABSENT_CUTOFF','12:00','Check-in from this time is marked absent'],
     ['REQUIRE_GPS','YES','YES rejects attendance outside approved locations'],
     ['DEFAULT_RADIUS_METRES','300','Default allowed office radius'],
+    ['LOCATION_TOLERANCE_METRES','150','Extra distance allowed beyond an office radius to absorb ordinary GPS error. 0 makes the radius exact.'],
+    ['LOCATION_MAX_ACCURACY_ALLOWANCE_METRES','500','A phone reports how uncertain its position is; that uncertainty is also allowed, up to this cap, so a weak indoor fix does not fail a person who is inside.'],
     ['REQUIRE_PIN','YES','Staff must enter PIN'],
     ['ALLOW_SELF_PIN','YES','Staff can create first PIN on first use'],
     ['REQUIRE_DEVICE_TOKEN','YES','Locks staff application access to the registered phone/browser'],

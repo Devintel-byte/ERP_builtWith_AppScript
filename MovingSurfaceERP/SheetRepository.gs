@@ -16,6 +16,8 @@ function getSettings_() {
     ABSENT_CUTOFF: raw.ABSENT_CUTOFF || '12:00',
     REQUIRE_GPS: raw.REQUIRE_GPS || 'YES',
     DEFAULT_RADIUS_METRES: Number(raw.DEFAULT_RADIUS_METRES || 300),
+    LOCATION_TOLERANCE_METRES: nonNegativeSetting_(raw.LOCATION_TOLERANCE_METRES,150,'LOCATION_TOLERANCE_METRES'),
+    LOCATION_MAX_ACCURACY_ALLOWANCE_METRES: nonNegativeSetting_(raw.LOCATION_MAX_ACCURACY_ALLOWANCE_METRES,500,'LOCATION_MAX_ACCURACY_ALLOWANCE_METRES'),
     REQUIRE_PIN: raw.REQUIRE_PIN || 'YES',
     ALLOW_SELF_PIN: raw.ALLOW_SELF_PIN || 'YES',
     REQUIRE_DEVICE_TOKEN: raw.REQUIRE_DEVICE_TOKEN || 'YES',
@@ -206,15 +208,66 @@ function getAttendanceStatus_(now, action, settings) {
   return 'Half Day';
 }
 
-function getMatchedLocation_(lat,lng,settings) {
+/**
+ * A usable coordinate from a sheet cell, or NaN. Accepts a number or text, and a
+ * decimal comma ("9,0765") as typed in some locales, which would otherwise read
+ * as NaN and silently drop the office from the list.
+ */
+function parseLocationCoordinate_(value,limit) {
+  let number;
+  if (typeof value === 'number') {
+    number = value;
+  } else {
+    let text = String(value == null ? '' : value).trim();
+    if (!text) return NaN;
+    if (text.indexOf(',') !== -1 && text.indexOf('.') === -1 && text.split(',').length === 2) text = text.replace(',','.');
+    number = Number(text);
+  }
+  return Number.isFinite(number) && Math.abs(number) <= limit ? number : NaN;
+}
+
+/**
+ * How far past an office radius a position may still count as inside it.
+ *
+ * Phone GPS indoors is routinely hundreds of metres out, and the phone says so:
+ * `accuracy` is the radius of the circle its true position is likely within. A flat
+ * buffer covers ordinary drift and the reported uncertainty is added on top, capped
+ * so a deliberately vague reading cannot stretch the office indefinitely.
+ */
+function locationTolerance_(settings,accuracy) {
+  const nonNegative = function(value) { const n = Number(value); return Number.isFinite(n) && n > 0 ? n : 0; };
+  const flat = nonNegative(settings && settings.LOCATION_TOLERANCE_METRES);
+  const cap = nonNegative(settings && settings.LOCATION_MAX_ACCURACY_ALLOWANCE_METRES);
+  const uncertainty = Math.min(nonNegative(accuracy),cap);
+  return flat + uncertainty;
+}
+
+/**
+ * The nearest active office to a position.
+ *
+ *  - distance:     metres to that office
+ *  - radius:       its configured radius
+ *  - withinRadius: strictly inside the radius
+ *  - allowed:      inside the radius plus the tolerance; this is what check-in tests
+ *  - invalidRows:  active office rows whose coordinates could not be read, so a
+ *                  mistyped office is reported instead of silently never matching
+ */
+function getMatchedLocation_(lat,lng,settings,accuracy) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LOCATIONS_SHEET);
-  let best = {name:'No approved location', distance:999999999, radius:settings.DEFAULT_RADIUS_METRES, allowed:false};
+  const tolerance = locationTolerance_(settings,accuracy);
+  let best = {name:'No approved location', distance:999999999, radius:settings.DEFAULT_RADIUS_METRES, tolerance:tolerance,
+    withinRadius:false, allowed:false, invalidRows:0};
   if (!sh || sh.getLastRow() < 2 || isNaN(lat) || isNaN(lng)) return best;
+  let invalid = 0;
   sh.getRange(2,1,sh.getLastRow()-1,5).getValues().forEach(r => {
     if (String(r[4]).toUpperCase() !== 'YES') return;
+    const officeLat = parseLocationCoordinate_(r[1],90), officeLng = parseLocationCoordinate_(r[2],180);
+    if (isNaN(officeLat) || isNaN(officeLng)) { invalid++; return; }
     const radius = Number(r[3] || settings.DEFAULT_RADIUS_METRES);
-    const dist = getDistanceMetres_(lat,lng,Number(r[1]),Number(r[2]));
-    if (dist < best.distance) best = {name:String(r[0] || 'Approved Location'), distance:dist, radius:radius, allowed:dist <= radius};
+    const dist = getDistanceMetres_(lat,lng,officeLat,officeLng);
+    if (dist < best.distance) best = {name:String(r[0] || 'Approved Location'), distance:dist, radius:radius, tolerance:tolerance,
+      withinRadius:dist <= radius, allowed:dist <= radius + tolerance, invalidRows:0};
   });
+  best.invalidRows = invalid;
   return best;
 }
