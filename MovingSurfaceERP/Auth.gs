@@ -6,8 +6,13 @@ function getAdminUser_(pin) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ADMIN_USERS_SHEET);
   if (!sh || sh.getLastRow() < 2) return {valid:false};
   const rows = sh.getRange(2,1,sh.getLastRow()-1,Math.max(12,sh.getLastColumn())).getValues();
+  if (isPinLocked_(selectedStaffId)) return {valid:false, locked:true};
   const matched = findAdminCredentialMatch_(rows,suppliedPin,selectedStaffId,getStaffPinMapFor_(selectedStaffId));
-  if (!matched) return {valid:false};
+  if (!matched) {
+    recordPinFailure_(selectedStaffId);
+    return {valid:false};
+  }
+  clearPinFailures_(selectedStaffId);
   const row = matched.row;
   const user = {
     valid:true, name:String(row[0]), role:String(row[3]), canView:String(row[4]).toUpperCase(),
@@ -283,6 +288,7 @@ function migrateDeviceTokens_() {
 }
 
 function migratePinsToFourDigits() {
+  requireOwnerContext_();
   migratePinColumn_(STAFF_SHEET, 5);
   migratePinColumn_(ADMIN_USERS_SHEET, 2);
 }

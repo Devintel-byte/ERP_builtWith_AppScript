@@ -1,4 +1,5 @@
 ﻿function setupMovingSurfaceERPUpgrade() {
+  requireOwnerContext_();
   setupMovingSurfaceSystem();
   // The schema migration must run before headers are enforced: relabelling the
   // legacy Projects columns in place would strand the data sitting under them.

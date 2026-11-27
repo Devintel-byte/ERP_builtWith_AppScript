@@ -74,20 +74,51 @@ function getWebAppRouteUrl_(route, queryParams) {
   return baseUrl + (params.length ? '?' + params.join('&') : '');
 }
 
+/** Folder of each page on our own domain, matching the output of web/build.js. */
+const PUBLIC_ROUTE_PATHS_ = {attendance:'/', staff:'/staff/', req:'/requisition/', recovery:'/recover/', admin:'/admin/'};
+
+/** The PUBLIC_BASE_URL setting, or '' when it is blank or not a plain https address. */
+function normalizePublicBaseUrl_(value) {
+  const base = String(value == null ? '' : value).trim().replace(/\/+$/,'');
+  return /^https:\/\/[^\s?#"'<>]+$/i.test(base) ? base : '';
+}
+
+/**
+ * The address of a page on our own domain. A recovery code goes after '#', which
+ * browsers never send to a web server, so it cannot end up in the host's logs.
+ */
+function buildPublicRouteUrl_(base,route,queryParams) {
+  const key = Object.prototype.hasOwnProperty.call(PUBLIC_ROUTE_PATHS_,route) ? route : 'attendance';
+  const params = Object.keys(queryParams || {}).sort()
+    .filter(name => queryParams[name] !== undefined && queryParams[name] !== null)
+    .map(name => encodeURIComponent(name)+'='+encodeURIComponent(String(queryParams[name])));
+  return base + PUBLIC_ROUTE_PATHS_[key] + (params.length ? (key === 'recovery' ? '#' : '?') + params.join('&') : '');
+}
+
+/**
+ * Where people should be sent for a page: our own domain when PUBLIC_BASE_URL is
+ * set, otherwise the Google web app. Email approval links do NOT use this, because
+ * only the Google web app serves the approval page.
+ */
+function getPublicRouteUrl_(route,queryParams) {
+  const base = normalizePublicBaseUrl_(getKeyValueSheet_(SETTINGS_SHEET).PUBLIC_BASE_URL);
+  return base ? buildPublicRouteUrl_(base,route,queryParams) : getWebAppRouteUrl_(route,queryParams);
+}
+
 function getStaffRecoveryUrl() {
-  return getWebAppRouteUrl_('recovery');
+  return getPublicRouteUrl_('recovery');
 }
 
 function getPublicPortalLinks() {
   return [
-    {label:'Staff portal',url:getWebAppRouteUrl_('staff')},
-    {label:'Requisitions',url:getWebAppRouteUrl_('req')},
-    {label:'Admin / ERP',url:getWebAppRouteUrl_('admin')}
+    {label:'Staff portal',url:getPublicRouteUrl_('staff')},
+    {label:'Requisitions',url:getPublicRouteUrl_('req')},
+    {label:'Admin / ERP',url:getPublicRouteUrl_('admin')}
   ].filter(link=>Boolean(link.url));
 }
 
 function getAttendanceUrl() {
-  return getWebAppRouteUrl_('attendance');
+  return getPublicRouteUrl_('attendance');
 }
 
 function buildCanonicalWebAppUrl_(baseUrl,params) {

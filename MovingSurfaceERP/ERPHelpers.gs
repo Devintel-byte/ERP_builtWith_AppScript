@@ -8,7 +8,7 @@
 
 function erpRequireAdmin_(pin,page) {
   const user = getAdminUser_(pin);
-  if (!user.valid) throw new Error('Invalid admin PIN.');
+  if (!user.valid) throw new Error(user.locked ? PIN_LOCKED_MESSAGE : 'Invalid admin PIN.');
   if (page) requireAdminPageWrite_(user,page);
   return user;
 }

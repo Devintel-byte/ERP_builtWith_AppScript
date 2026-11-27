@@ -234,7 +234,7 @@ function countInventoryTransactions_(itemId) {
 function erpGetInventoryDeletePreview(p) {
   try {
     const user = getAdminUser_(p && p.adminPin);
-    if (!user.valid) return {success: false, message: 'Invalid admin PIN.'};
+    if (!user.valid) return {success: false, message: user.locked ? PIN_LOCKED_MESSAGE : 'Invalid admin PIN.'};
     requireAdminPageWrite_(user, 'inventory');
     const item = findInventoryRow_(p.itemId);
     if (!item) return {success: false, message: 'Inventory item not found.'};

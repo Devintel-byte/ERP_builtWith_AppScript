@@ -68,8 +68,13 @@
       // the admin ERP no longer checks a device, so a PIN is worth taking.
       pinToCreate = submittedPin;
     } else {
-      if (String(settings.REQUIRE_PIN).toUpperCase() === 'YES' && (!isValidPin_(submittedPin) || submittedPin !== storedPin)) {
-        return {success:false, message:'Incorrect PIN. Attendance rejected.'};
+      if (String(settings.REQUIRE_PIN).toUpperCase() === 'YES') {
+        if (isPinLocked_(staff.id)) return {success:false, message:PIN_LOCKED_MESSAGE};
+        if (submittedPin !== storedPin) {
+          recordPinFailure_(staff.id);
+          return {success:false, message:'Incorrect PIN. Attendance rejected.'};
+        }
+        clearPinFailures_(staff.id);
       }
     }
 

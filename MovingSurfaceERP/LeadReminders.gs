@@ -216,7 +216,7 @@ function sendLeadFinalReminder_(lead, days, key) {
     'Log the contact on the Leads page so the next follow-up is scheduled.</div>' +
     (lead.notes ? emailSection_('Notes', emailParagraph_(lead.notes)) : '');
 
-  const dashboardUrl = getWebAppRouteUrl_('admin');
+  const dashboardUrl = getPublicRouteUrl_('admin');
   const body = sections + (dashboardUrl
     ? '<div style="margin-top:22px">' + emailButton_(dashboardUrl, 'Open the Leads page', '#087f68') + '</div>'
     : '');
@@ -275,7 +275,7 @@ function sendLeadWeeklyDigest_(bucket, today, key) {
       'Assign an owner on the Leads page so the reminders reach the right person.</div>';
   }
 
-  const dashboardUrl = getWebAppRouteUrl_('admin');
+  const dashboardUrl = getPublicRouteUrl_('admin');
   if (dashboardUrl) body += '<div style="margin-top:22px">' + emailButton_(dashboardUrl, 'Open the Leads page', '#087f68') + '</div>';
 
   const queued = tryQueueEmail_({
@@ -339,6 +339,7 @@ function installProjectReconcileWorker_() {
 
 /** Public entry points so the triggers can be recreated from the editor. */
 function installLeadReminderWorker() {
+  requireOwnerContext_();
   installLeadReminderWorker_();
   installProjectReconcileWorker_();
   Logger.log('Lead reminder and project reconcile triggers are installed.');
@@ -346,6 +347,7 @@ function installLeadReminderWorker() {
 
 /** Menu helper: runs the sweep now and reports what it did. */
 function runLeadReminderSweepNow() {
+  requireOwnerContext_();
   const result = processLeadFollowUpReminders();
   SpreadsheetApp.getUi().alert('Lead follow-up reminders\n\n' + JSON.stringify(result, null, 2) +
     '\n\nQueued mail is delivered by the one-minute Mail Queue worker.');

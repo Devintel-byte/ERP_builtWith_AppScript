@@ -45,7 +45,12 @@ function validateStaffPortalLogin_(staffId, pin) {
   if (!staff) throw new Error('Staff not found or inactive.');
   if (!staff.pin) throw new Error('Your PIN is not set. Please use attendance first to create your PIN, or contact Admin.');
   const suppliedPin = String(pin == null ? '' : pin).trim();
-  if (!isValidPin_(suppliedPin) || normalizePin_(staff.pin) !== suppliedPin) throw new Error('Invalid Staff ID or PIN. Enter all four digits, including any leading zero.');
+  if (isPinLocked_(staff.id)) throw new Error(PIN_LOCKED_MESSAGE);
+  if (!isValidPin_(suppliedPin) || normalizePin_(staff.pin) !== suppliedPin) {
+    if (isValidPin_(suppliedPin)) recordPinFailure_(staff.id);
+    throw new Error('Invalid Staff ID or PIN. Enter all four digits, including any leading zero.');
+  }
+  clearPinFailures_(staff.id);
   return staff;
 }
 

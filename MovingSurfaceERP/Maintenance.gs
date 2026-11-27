@@ -1,4 +1,5 @@
 ﻿function fixOldAttendanceRowsMarkedAbsent() {
+  requireOwnerContext_();
   // Optional one-time cleanup: changes old successful Check In rows with status Absent to Half Day.
   // This does not affect no-show absence calculations; it only fixes rows where someone actually signed in.
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(LOG_SHEET);

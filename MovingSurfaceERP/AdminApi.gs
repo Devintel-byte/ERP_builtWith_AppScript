@@ -3,7 +3,7 @@
   lock.waitLock(15000);
   try {
     const user = getAdminUser_(payload.adminPin);
-    if (!user.valid || user.canView !== 'YES') return {success:false, message:'Invalid PIN.'};
+    if (!user.valid || user.canView !== 'YES') return {success:false, message:user.locked ? PIN_LOCKED_MESSAGE : 'Invalid PIN.'};
     if (!adminCanWritePage_(user,'requisitions')) return {success:false,message:'You do not have permission to update requisitions.'};
     if (!adminCanApprovePage_(user,'requisitions')) return {success:false, message:'You do not have permission to approve/reject requisitions.'};
 
@@ -78,7 +78,7 @@ function adminMarkRequisitionPaid(payload) {
   lock.waitLock(15000);
   try {
     const user = getAdminUser_(payload.adminPin);
-    if (!user.valid || user.canView !== 'YES') return {success:false, message:'Invalid PIN.'};
+    if (!user.valid || user.canView !== 'YES') return {success:false, message:user.locked ? PIN_LOCKED_MESSAGE : 'Invalid PIN.'};
     if (!adminCanWritePage_(user,'requisitions')) return {success:false,message:'You do not have permission to update requisitions.'};
     if (!adminCanDisbursePage_(user,'requisitions')) return {success:false, message:'You do not have accounts/disbursement permission.'};
 
@@ -109,7 +109,7 @@ function adminMarkRequisitionPaid(payload) {
 
 function adminAddNewStaff(payload) {
   const user = getAdminUser_(payload.adminPin);
-  if (!user.valid) return {success:false, message:'Invalid PIN.'};
+  if (!user.valid) return {success:false, message:user.locked ? PIN_LOCKED_MESSAGE : 'Invalid PIN.'};
   if (!adminCanWritePage_(user,'staff')) return {success:false,message:'You do not have permission to manage staff accounts.'};
   if (user.canOnboard !== 'YES') return {success:false, message:'You do not have onboarding permission.'};
 
@@ -142,7 +142,7 @@ function adminResetStaff(payload) {
   lock.waitLock(15000);
   try {
     const user = getAdminUser_(payload.adminPin);
-    if (!user.valid) return {success:false, message:'Invalid PIN.'};
+    if (!user.valid) return {success:false, message:user.locked ? PIN_LOCKED_MESSAGE : 'Invalid PIN.'};
     if (!adminCanWritePage_(user,'staff')) return {success:false,message:'You do not have permission to manage staff accounts.'};
     if (user.canReset !== 'YES') return {success:false, message:'You do not have reset permission.'};
 
@@ -163,6 +163,7 @@ function adminResetStaff(payload) {
       deviceCleared = 'YES';
     }
     revokeStaffRecoveryRequests_(staff.id);
+    clearPinFailures_(staff.id);
     SpreadsheetApp.getActiveSpreadsheet().getSheetByName(ADMIN_RESET_LOG_SHEET).appendRow([new Date(), staff.id, staff.name, payload.resetType, pinCleared, deviceCleared, user.name, payload.reason || '', 'Reset completed from Admin Portal']);
     recordActivity_('Admin',user.name,'ADMIN-ROW-'+user.row,'UPDATE','Staff',staff.id,'Credential/device reset: '+String(payload.resetType || ''));
     invalidatePublicStaffOptionsCache_();
@@ -177,7 +178,7 @@ function adminResetStaff(payload) {
 function adminGetPortalData(payload) {
   try {
     const user = getAdminUser_(payload.adminPin);
-    if (!user.valid) return {success:false, message:'Invalid PIN or inactive admin user.'};
+    if (!user.valid) return {success:false, message:user.locked ? PIN_LOCKED_MESSAGE : 'Invalid PIN or inactive admin user.'};
     if (user.canView !== 'YES') return {success:false, message:'This user does not have dashboard view permission.'};
     if (!adminCanReadPage_(user,'dashboard')) return {success:false,message:'This user does not have dashboard access.'};
 
@@ -256,7 +257,7 @@ function adminGetPortalData(payload) {
       staffOptions:canRead('staff') || ['assets','expenses','leave','fieldduty'].some(page => adminCanWritePage_(user,page)) ? staffOptions : '',
       inventoryOptions:canRead('inventory') ? inventoryOptions : '',
       staff:staff,
-      webAppUrl:getWebAppRouteUrl_('attendance') || '',
+      webAppUrl:getPublicRouteUrl_('attendance') || '',
       sheetLinks:getSpreadsheetSheetLinks_(user),
       liveAttendance:canRead('attendance') ? liveAttendance : {totalStaff:0,signedInCount:0,checkedOutCount:0,overtimeCheckoutCount:0,notSignedInCount:0,date:'',currentTime:'',signedIn:[],checkedOut:[],notSignedIn:[]},
       payrollRows:canRead('reports') ? payrollRows : [],

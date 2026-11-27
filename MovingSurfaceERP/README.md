@@ -38,7 +38,7 @@ Keep sheet reads and business rules in server-side files. UI files should call s
 2. Run `setupMovingSurfaceERPUpgrade` once and approve the requested Google permissions. It creates/repairs core and ERP sheets (including the Activity Log), runs the Projects / Leads schema migration, normalizes existing PIN cells to text, syncs the accountant view, and installs the one-minute email queue trigger plus the daily lead-reminder and project-reconcile triggers.
 3. Map each enabled admin account to a Staff ID in `Admin Users` (sample accounts are pre-linked) and review the role, page permissions, and notification email columns below. Admin Users holds no PIN: each person creates their own on the attendance page. See *One PIN for every page*.
 4. Review recipient addresses in `Requisition Settings`.
-5. Run `testRoutingAndPinRules`, `testAdminLogin`, `testERPPortalData`, `testRecoveryEmailMatchRules`, `testAttendanceTransitionRules`, `testRequisitionClientDto`, `testAdminAccessRules`, `testAdminCredentialResolution`, `testUserPermissionMatrixValidation`, `testRequisitionNotificationClassification`, `testProjectsAndLeadsPipeline`, `testInventoryModule`, `testClientDetailCapture`, `testDeviceMismatchPolicy`, `testUserAgentClassification`, `testSinglePinCredentials`, `testStartingPinRules`, `testLocationToleranceRules`, `testFieldDutyExcusedDays`, `testFieldDutyDateAndSettingParsing`, and `testFieldDutyApprovalRules`.
+5. Run `testRoutingAndPinRules`, `testAdminLogin`, `testERPPortalData`, `testRecoveryEmailMatchRules`, `testAttendanceTransitionRules`, `testRequisitionClientDto`, `testAdminAccessRules`, `testAdminCredentialResolution`, `testUserPermissionMatrixValidation`, `testRequisitionNotificationClassification`, `testProjectsAndLeadsPipeline`, `testInventoryModule`, `testClientDetailCapture`, `testDeviceMismatchPolicy`, `testUserAgentClassification`, `testSinglePinCredentials`, `testStartingPinRules`, `testLocationToleranceRules`, `testFieldDutyExcusedDays`, `testFieldDutyDateAndSettingParsing`, `testFieldDutyApprovalRules`, `testHostedApiRules`, and `testPinAttemptLimit`.
 6. Deploy or update the web app and test each route using the exact query strings above.
 7. Add and verify the staff company email addresses used for account recovery. Recovery links are one-use, expire after 30 minutes, and reset the PIN; the person chooses whether the browser they are on also becomes their attendance device. Run setup again after schema changes to create the Staff Recovery Log and add the overtime settings.
 8. After upgrading the attendance schema, run `setupMovingSurfaceERPUpgrade` once. `Attendance Log` gains explicit `Checkout Time` and `Checkout Type` columns, and existing regular/overtime checkout rows are backfilled from their recorded event time and action.
@@ -493,6 +493,33 @@ Note that the monthly figure follows the existing design: required days are the 
 ### Setup
 
 Run **Setup / Repair ERP Upgrade** once. It creates the `Field Duty` sheet and adds the two Accountant View columns. Nothing else needs migrating.
+
+## Hosting on our own domain
+
+The pages can be served from `mserp.movingsurface.com.ng` while Apps Script keeps doing the work. The Google web app address stays working, which is the way back.
+
+| File | Job |
+| --- | --- |
+| `Api.gs` | `doPost` JSON API. Runs only the functions listed in `apiFunctions_()`. **Add a new server function there when a page starts calling it**, or the hosted page gets "Unknown request". |
+| `Security.gs` | Wrong-PIN limit, and the owner-only guard on setup and maintenance functions. |
+| `../web/bridge.js` | Replaces `google.script.run` on the hosted pages. Never retries. |
+| `../web/build.js` | Builds `web/dist/` from these sources. Re-run it, and re-upload, after changing any page or `Styles.html`. |
+
+Go live:
+
+1. Copy the `.gs` and `.html` files into Apps Script, including the new `Api.gs` and `Security.gs`.
+2. Run **Setup / Repair ERP Upgrade** from the editor and approve the new permission it asks for (reading your email address, used by the owner-only guard). Then run `testHostedApiRules` and `testPinAttemptLimit`.
+3. **Deploy > Manage deployments**, edit the existing deployment, choose **New version**. Execute as **Me**, access **Anyone**.
+4. `node web/build.js --api <your /exec address>`
+5. Upload everything inside `web/dist/`, including the hidden `.htaccess`, to the subdomain's document root. To try it first, upload to a `/new/` subfolder; the pages use relative paths.
+6. Test every page. Then set `PUBLIC_BASE_URL` in the `Settings` sheet to `https://mserp.movingsurface.com.ng`, so recovery emails, dashboard links and page links use the domain. Email approval links stay on Google.
+7. Deal with device registrations: they belong to the old address, so set `DEVICE_MISMATCH_POLICY` to `REBIND_AT_OFFICE` for one week (replace all placeholder PINs first), then back to `BLOCK`.
+
+**PIN limit.** Five wrong PINs for a Staff ID within five minutes lock that ID for up to five minutes on attendance, the staff portal and the admin ERP together. Account recovery or an admin reset lifts it. Anyone can trigger it against a colleague's ID, which is why it is short. Guesses sent at exactly the same moment can slip a few extra tries past it.
+
+**Owner-only functions.** Setup, migration and maintenance functions run only from the editor or the spreadsheet menu. Time-driven trigger handlers are not guarded.
+
+**Analytics.** Paste one snippet into `web/analytics.html` and rebuild. It is left off the recovery page.
 
 ## One PIN for every page
 

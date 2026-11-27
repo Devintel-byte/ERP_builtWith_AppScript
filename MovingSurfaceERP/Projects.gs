@@ -278,7 +278,7 @@ function erpUpdateProject(p) {
 function erpGetProjectDetail(p) {
   try {
     const user = getAdminUser_(p && p.adminPin);
-    if (!user.valid) return {success: false, message: 'Invalid admin PIN.'};
+    if (!user.valid) return {success: false, message: user.locked ? PIN_LOCKED_MESSAGE : 'Invalid admin PIN.'};
     requireAdminPageRead_(user, 'projects');
     const project = findProjectRow_(p.projectId);
     if (!project) return {success: false, message: 'Project not found.'};

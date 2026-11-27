@@ -8,6 +8,7 @@
  * Run from the spreadsheet menu: Moving Surface ERP > Migrate Projects / Leads Schema.
  */
 function migrateProjectsAndLeadsSchema() {
+  requireOwnerContext_();
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
   const report = [];

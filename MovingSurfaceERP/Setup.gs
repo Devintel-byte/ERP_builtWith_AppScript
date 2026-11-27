@@ -1,4 +1,5 @@
 ﻿function setupMovingSurfaceSystem() {
+  requireOwnerContext_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   Object.keys(SHEET_HEADERS).forEach(name => {
@@ -75,7 +76,8 @@ function seedDefaults_() {
     ['DEVICE_MISMATCH_POLICY','BLOCK','BLOCK rejects a check-in from an unrecognised browser (default). REBIND_AT_OFFICE re-registers it instead, but only when the PIN is right and GPS puts the person inside an approved location. Use it if iPhone users keep losing their registration.'],
     ['DEFAULT_LATE_PENALTY','1000','Default late penalty when staff row is blank'],
     ['HALF_DAY_PERCENT','50','Half day deduction percent of daily rate'],
-    ['WORKDAYS','MON,TUE,WED,THU,FRI','Working days used for payroll']
+    ['WORKDAYS','MON,TUE,WED,THU,FRI','Working days used for payroll'],
+    ['PUBLIC_BASE_URL','','Address of the pages on your own domain, e.g. https://mserp.movingsurface.com.ng. Blank keeps every link on the Google web app. Set it only after the hosted pages are live.']
   ];
   const existingSettings = getKeyValueSheet_(SETTINGS_SHEET);
   const missingSettings = settingDefaults.filter(row => !Object.prototype.hasOwnProperty.call(existingSettings, row[0]));

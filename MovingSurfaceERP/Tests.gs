@@ -1051,3 +1051,36 @@ function testPayrollMonthWorkdayCap() {
   if (perfect.dailyRate !== 10000) throw new Error('The daily rate stays on the required days.');
   Logger.log('testPayrollMonthWorkdayCap passed.');
 }
+
+
+/** The web API and the public links used by the pages on our own domain. */
+function testHostedApiRules() {
+  ['setupMovingSurfaceSystem','migratePinsToFourDigits','testAdminLogin','getAdminUser_','constructor','__proto__',''].forEach(function (name) {
+    const reply = handleApiRequest_(JSON.stringify({fn:name, args:[]}));
+    if (reply.ok !== false) throw new Error('The API must refuse ' + name);
+  });
+  if (handleApiRequest_('not json').ok !== false) throw new Error('Bad JSON must be refused.');
+  const functions = apiFunctions_();
+  Object.keys(functions).forEach(function (name) {
+    if (typeof functions[name] !== 'function') throw new Error('Listed but missing: ' + name);
+  });
+  const base = normalizePublicBaseUrl_(' https://erp.example.test/ ');
+  if (base !== 'https://erp.example.test') throw new Error('Base address not normalised: ' + base);
+  if (normalizePublicBaseUrl_('http://erp.example.test') !== '') throw new Error('Only https is accepted.');
+  if (buildPublicRouteUrl_(base,'admin') !== base + '/admin/') throw new Error('Admin address.');
+  if (buildPublicRouteUrl_(base,'recovery',{token:'abc'}) !== base + '/recover/#token=abc') throw new Error('The recovery code goes after #.');
+  Logger.log('testHostedApiRules passed.');
+}
+
+/** The wrong-PIN limit, on a made-up Staff ID that is cleared afterwards. */
+function testPinAttemptLimit() {
+  const subject = 'TEST-PIN-LIMIT';
+  clearPinFailures_(subject);
+  for (let i = 0; i < PIN_MAX_FAILURES - 1; i++) recordPinFailure_(subject);
+  if (isPinLocked_(subject)) throw new Error('Locked too early.');
+  recordPinFailure_(subject);
+  if (!isPinLocked_(subject)) throw new Error('Not locked after ' + PIN_MAX_FAILURES + ' failures.');
+  clearPinFailures_(subject);
+  if (isPinLocked_(subject)) throw new Error('Clearing must unlock.');
+  Logger.log('testPinAttemptLimit passed.');
+}

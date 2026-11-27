@@ -49,7 +49,7 @@ function requestStaffAccountRecovery(payload) {
     const expiresAt = new Date(now.getTime()+STAFF_RECOVERY_LIFETIME_MINUTES_*60000);
     const recoveryRow = recoverySheet.getLastRow()+1;
     recoverySheet.appendRow([sha256Hex_(token),staff.id,now,expiresAt,'','Pending']);
-    const recoveryUrl = getWebAppRouteUrl_('recovery',{token:token});
+    const recoveryUrl = getPublicRouteUrl_('recovery',{token:token});
     if (!recoveryUrl) throw new Error('The web app must be deployed before account recovery can be used.');
 
     const subject = 'Moving Surface account recovery';
@@ -130,6 +130,7 @@ function completeStaffAccountRecovery(payload) {
     const replaceDevice = !(payload && (payload.registerDevice === false || String(payload.registerDevice).toLowerCase() === 'false'));
     const newDeviceToken = replaceDevice ? staff.id+'-'+Utilities.getUuid() : '';
     updateStaffPin_(staff.row,pin);
+    clearPinFailures_(staff.id);
     if (replaceDevice) updateStaffDeviceToken_(staff.row,newDeviceToken);
     sheet.getRange(recoveryRow,5,1,2).setValues([[new Date(),'Completed']]);
     revokeStaffRecoveryRequests_(staff.id);

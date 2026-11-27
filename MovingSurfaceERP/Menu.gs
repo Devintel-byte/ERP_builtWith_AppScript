@@ -26,11 +26,11 @@ function showWebAppHelp() {
   const deployed = ScriptApp.getService().getUrl();
   const url = deployed || 'Deploy as Web App first, then copy the /exec URL.';
   SpreadsheetApp.getUi().alert(
-    'Web App Links\n\nAttendance:\n' + url +
-    '\n\nStaff Self-Service Portal:\n' + (deployed ? getWebAppRouteUrl_('staff') : url) +
-    '\n\nStaff Requisition only:\n' + (deployed ? getWebAppRouteUrl_('req') : url) +
-    '\n\nStaff account recovery:\n' + (deployed ? getWebAppRouteUrl_('recovery') : url) +
-    '\n\nAdmin / Accounts / ERP:\n' + (deployed ? getWebAppRouteUrl_('admin') : url)
+    'Web App Links\n\nAttendance:\n' + (deployed ? getPublicRouteUrl_('attendance') : url) +
+    '\n\nStaff Self-Service Portal:\n' + (deployed ? getPublicRouteUrl_('staff') : url) +
+    '\n\nStaff Requisition only:\n' + (deployed ? getPublicRouteUrl_('req') : url) +
+    '\n\nStaff account recovery:\n' + (deployed ? getPublicRouteUrl_('recovery') : url) +
+    '\n\nAdmin / Accounts / ERP:\n' + (deployed ? getPublicRouteUrl_('admin') : url)
   );
 }
 

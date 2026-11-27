@@ -50,7 +50,7 @@
       relatedId:reqId
     });
   }
-  const adminDashboardUrl = getWebAppRouteUrl_('admin');
+  const adminDashboardUrl = getPublicRouteUrl_('admin');
   const notificationContent = sections+(adminDashboardUrl
     ? '<div style="margin-top:22px">'+emailButton_(adminDashboardUrl,'Open admin dashboard','#2864c5')+'</div>'
     : '');
@@ -113,7 +113,7 @@ function sendApprovedRequisitionToAccounts_(reqId) {
     Logger.log('Accounts notification not queued: ACCOUNTS_EMAIL is not configured for ' + reqId);
     return false;
   }
-  const dashboardUrl = getWebAppRouteUrl_('admin');
+  const dashboardUrl = getPublicRouteUrl_('admin');
   const sections = emailInfoTable_([
     ['Request ID',reqId],['Requested by',row.staffName+' ('+row.staffId+')'],
     ['Department',row.department],['Estimated total','NGN '+formatMoney_(row.total)]
@@ -274,6 +274,7 @@ function installMailQueueWorker_() {
 }
 
 function installMailQueueWorker() {
+  requireOwnerContext_();
   installMailQueueWorker_();
 }
 
